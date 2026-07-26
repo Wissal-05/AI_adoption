@@ -10,6 +10,7 @@ Architecture :
 from pathlib import Path
 import sys
 import pandas as pd
+import plotly.express as px
 
 import streamlit as st
 
@@ -21,6 +22,11 @@ from adoption_analytics.services.dashboard_service import DashboardService
 from adoption_analytics.services.security_service import SecurityService
 from adoption_analytics.services.data_freshness import DataFreshnessService
 from adoption_analytics.ai import get_assistant
+from adoption_analytics.metrics.learning_center import prepare_daily_trend
+from adoption_analytics.metrics.adoption import (
+    compute_usage_frequency,
+    departmental_breakdown,
+)
 
 
 # ── Configuration de la page ───────────────────────────────────────────────────
@@ -201,11 +207,116 @@ with security_tab:
 # ── Onglet Booking ────────────────────────────────────────────────────────────
 
 with booking_tab:
-    st.subheader("Booking")
-    st.info(
-        "La source Booking est réservée dans le dépôt, mais aucun fichier n'est chargé pour le moment. "
-        "Ajoutez les futurs fichiers dans `data/um6p/booking/` puis branchez un connecteur dédié."
-    )
+    st.header("Booking")
+
+    booking_usage = data.usage_events[
+        data.usage_events["service"] == "Booking"
+    ].copy()
+
+    booking_daily = data.raw_by_source.get(
+        "booking",
+        {},
+    ).get(
+        "daily_kpis",
+        pd.DataFrame(),
+    ).copy()
+
+    if booking_usage.empty and booking_daily.empty:
+        st.info(
+            "Aucune donnée Booking n’est disponible pour le moment. "
+            "Ajoutez les fichiers dans `data/um6p/booking/` puis relancez l’application."
+        )
+    else:
+        st.caption(
+            "KPI d’adoption Booking calculés à partir des événements d’usage "
+            "et des KPI quotidiens anonymisés."
+        )
+
+        if not booking_daily.empty:
+            booking_daily["date"] = pd.to_datetime(
+                booking_daily["date"],
+                errors="coerce",
+            )
+            booking_daily = booking_daily.dropna(subset=["date"]).sort_values("date")
+
+            last_kpis = booking_daily.iloc[-1]
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("DAU", f"{int(last_kpis['dau']):,}")
+            col2.metric("WAU", f"{int(last_kpis['wau']):,}")
+            col3.metric("MAU", f"{int(last_kpis['mau']):,}")
+            col4.metric("Événements du dernier jour", f"{int(last_kpis['activity_events']):,}")
+            st.subheader("Évolution des KPI Booking")
+
+            booking_trend = prepare_daily_trend(booking_daily)
+
+            if not booking_trend.empty:
+                fig = px.line(
+                    booking_trend,
+                    x="date",
+                    y=["dau", "wau", "mau"],
+                    markers=True,
+                    title="Évolution DAU / WAU / MAU - Booking",
+                )
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.warning("Aucune tendance Booking disponible.")
+        else:
+            st.warning(
+                "Les KPI quotidiens Booking ne sont pas disponibles. "
+                "Les métriques seront calculées uniquement depuis les événements d’usage."
+            )
+
+            metrics = AdoptionMetricsService.compute(booking_usage)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("DAU", f"{metrics['dau']:,}")
+            col2.metric("WAU", f"{metrics['wau']:,}")
+            col3.metric("MAU", f"{metrics['mau']:,}")
+
+        st.subheader("Fréquence d’utilisation")
+
+        frequency = compute_usage_frequency(booking_usage)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Utilisateurs actifs", f"{frequency['active_users']:,}")
+        col2.metric("Événements totaux", f"{frequency['total_events']:,}")
+        col3.metric(
+            "Événements / utilisateur",
+            f"{frequency['avg_events_per_active_user']:.2f}",
+        )
+        col4.metric(
+            "Jours actifs / utilisateur",
+            f"{frequency['avg_active_days_per_user']:.2f}",
+        )
+
+        st.subheader("Activité par action")
+
+        if not booking_usage.empty:
+            action_summary = (
+                booking_usage.groupby("action", as_index=False)
+                .agg(
+                    events=("user_id", "size"),
+                    active_users=("user_id", "nunique"),
+                )
+                .sort_values("events", ascending=False)
+                .head(15)
+            )
+
+            fig_actions = px.bar(
+                action_summary,
+                x="action",
+                y="events",
+                title="Top actions Booking",
+            )
+            st.plotly_chart(fig_actions, width="stretch")
+
+            st.subheader("Usage par entité / campus")
+
+            booking_breakdown = departmental_breakdown(booking_usage).head(10)
+            st.dataframe(booking_breakdown, width="stretch")
+        else:
+            st.info("Aucun événement d’usage Booking disponible.")
 
 
 # ── Onglet Assistant IA ───────────────────────────────────────────────────────
