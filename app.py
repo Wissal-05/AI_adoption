@@ -326,16 +326,56 @@ with booking_tab:
 # ── Onglet Assistant IA ───────────────────────────────────────────────────────
 
 with assistant_tab:
-    st.subheader("Questions en langage naturel")
+    st.subheader("Assistant IA d’adoption")
     assistant = get_assistant()
     st.caption(f"Moteur actif : `{assistant}`")
 
-    question = st.text_input(
-        "Question",
-        placeholder="Ex: Quelles routes suspectes ont été détectées sur Learning Center ?",
+    if "assistant_chat_history" not in st.session_state:
+        st.session_state.assistant_chat_history = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Bonjour, je peux répondre aux questions sur les KPI "
+                    "d’adoption : DAU, WAU, MAU, évolution, fréquence "
+                    "d’utilisation, services sous-utilisés et routes suspectes."
+                ),
+            }
+        ]
+
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        st.markdown("Posez une question sur les données filtrées dans le dashboard.")
+
+    with col2:
+        if st.button("Nouvelle conversation"):
+            st.session_state.assistant_chat_history = [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Nouvelle conversation démarrée. "
+                        "Quelle analyse souhaitez-vous effectuer ?"
+                    ),
+                }
+            ]
+            st.rerun()
+
+    for message in st.session_state.assistant_chat_history:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    question = st.chat_input(
+        "Posez votre question sur les KPI d’adoption..."
     )
 
     if question:
+        st.session_state.assistant_chat_history.append(
+            {
+                "role": "user",
+                "content": question,
+            }
+        )
+
         source_key_by_service = {
             "Learning Center": "learning_center",
             "Booking": "booking",
@@ -364,43 +404,24 @@ with assistant_tab:
         else:
             selected_daily_kpis = pd.DataFrame()
 
-        response = assistant.answer(
-            question,
-            context={
-                "usage_df": filtered_usage,
-                "web_logs_df": data.web_logs,
-                "daily_kpis": selected_daily_kpis,
-            },
+        with st.spinner("Analyse en cours..."):
+            response = assistant.answer(
+                question,
+                context={
+                    "usage_df": filtered_usage,
+                    "web_logs_df": data.web_logs,
+                    "daily_kpis": selected_daily_kpis,
+                },
+            )
+
+        st.session_state.assistant_chat_history.append(
+            {
+                "role": "assistant",
+                "content": response,
+            }
         )
 
-        st.markdown(response)
-
+        st.rerun()
 # ── Onglet Architecture ───────────────────────────────────────────────────────
 
-with architecture_tab:
-    st.subheader("Architecture logicielle")
-    st.markdown(
-        """
-        ### Couches (de l'UI vers l'infrastructure)
 
-        | Couche | Module | Rôle |
-        |---|---|---|
-        | UI | `app.py` | Affichage Streamlit uniquement, aucune logique métier |
-        | Application | `services/` | Orchestration : données → métriques → ViewModels |
-        | Domaine | `metrics/`, `reporting/`, `ai/` | Calculs, rapports, assistant IA |
-        | Infrastructure | `data_sources/` | Connecteurs CSV, normalisation vers schémas canoniques |
-        | Configuration | `config/settings.py` | Pydantic-settings, aucun chemin hardcodé |
-        | Schémas | `schemas/` | Contrats de données UsageEvent et WebLog |
-
-        ### Ajouter une nouvelle source
-
-        1. Créer `src/adoption_analytics/data_sources/<nom>/connector.py`
-        2. Hériter de `DataSource`, implémenter `load()` → retourner un DataFrame conforme au schéma
-        3. Déclarer dans `data_sources/registry.py` ou utiliser `@register_source("nom")`
-        4. Les métriques, rapports, alertes et l'assistant deviennent immédiatement disponibles
-
-        ### Changer le moteur d'assistant
-
-        Définir `ASSISTANT_ENGINE=llm` dans `.env` et configurer `OPENAI_API_KEY`.
-        """
-    )
