@@ -333,11 +333,19 @@ class KeywordEngine(AssistantPort):
         if daily_kpis_df.empty:
             return None
 
-        required_columns = {"dau", "wau", "mau"}
-        if not required_columns.issubset(daily_kpis_df.columns):
+        data = daily_kpis_df.copy()
+
+        metric_columns = {
+            "dau": "dau" if "dau" in data.columns else "dau_approx",
+            "wau": "wau" if "wau" in data.columns else "wau_approx",
+            "mau": "mau" if "mau" in data.columns else "mau_approx",
+        }
+
+        required_columns = {"date", *metric_columns.values()}
+
+        if not required_columns.issubset(data.columns):
             return None
 
-        data = daily_kpis_df.copy()
         data["date"] = pd.to_datetime(data["date"], errors="coerce")
         data = data.dropna(subset=["date"]).sort_values("date")
 
@@ -347,9 +355,9 @@ class KeywordEngine(AssistantPort):
         last = data.iloc[-1]
 
         return {
-            "dau": int(last["dau"]),
-            "wau": int(last["wau"]),
-            "mau": int(last["mau"]),
+            "dau": int(last[metric_columns["dau"]]),
+            "wau": int(last[metric_columns["wau"]]),
+            "mau": int(last[metric_columns["mau"]]),
             "date": last["date"].date(),
         }
 

@@ -175,6 +175,29 @@ class TestKeywordEngine:
         )
 
         assert "368" in answer
+
+    def test_keyword_engine_uses_learning_center_daily_kpis_with_approx_columns(sample_usage_df):
+        engine = KeywordEngine()
+
+        daily_kpis = pd.DataFrame(
+            {
+                "date": ["2026-07-15", "2026-07-16", "2026-07-17"],
+                "dau_approx": [31, 20, 10],
+                "wau_approx": [6459, 6122, 85],
+                "mau_approx": [9837, 9807, 8877],
+            }
+        )
+
+        answer = engine.answer(
+            "Quel est le MAU ?",
+            {
+                "usage_df": sample_usage_df,
+                "web_logs_df": pd.DataFrame(),
+                "daily_kpis": daily_kpis,
+            },
+        )
+
+        assert "8,877" in answer or "8877" in answer
                 
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):
