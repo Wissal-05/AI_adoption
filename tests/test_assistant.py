@@ -152,6 +152,29 @@ class TestKeywordEngine:
       assert "DAU" in response
       assert "WAU" in response
       assert "MAU" in response
+
+    def test_keyword_engine_uses_daily_kpis_for_latest_mau(sample_usage_df):
+        engine = KeywordEngine()
+
+        daily_kpis = pd.DataFrame(
+            {
+                "date": ["2026-07-21", "2026-07-22", "2026-07-23"],
+                "dau": [43, 35, 14],
+                "wau": [248, 152, 127],
+                "mau": [365, 367, 368],
+            }
+        )
+
+        answer = engine.answer(
+            "Quel est le MAU ?",
+            {
+                "usage_df": sample_usage_df,
+                "web_logs_df": pd.DataFrame(),
+                "daily_kpis": daily_kpis,
+            },
+        )
+
+        assert "368" in answer
                 
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):

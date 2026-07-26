@@ -219,17 +219,46 @@ with assistant_tab:
         "Question",
         placeholder="Ex: Quelles routes suspectes ont été détectées sur Learning Center ?",
     )
+
     if question:
+        source_key_by_service = {
+            "Learning Center": "learning_center",
+            "Booking": "booking",
+        }
+
+        if isinstance(selected_services, str):
+            selected_service_list = [selected_services]
+        else:
+            selected_service_list = list(selected_services)
+
+        if len(selected_service_list) == 1:
+            selected_source_key = source_key_by_service.get(
+                selected_service_list[0]
+            )
+        else:
+            selected_source_key = None
+
+        if selected_source_key is not None:
+            selected_daily_kpis = data.raw_by_source.get(
+                selected_source_key,
+                {},
+            ).get(
+                "daily_kpis",
+                pd.DataFrame(),
+            )
+        else:
+            selected_daily_kpis = pd.DataFrame()
+
         response = assistant.answer(
             question,
             context={
                 "usage_df": filtered_usage,
                 "web_logs_df": data.web_logs,
-                "daily_kpis": data.learning_center_daily,
-            }
+                "daily_kpis": selected_daily_kpis,
+            },
         )
-        st.markdown(response)
 
+        st.markdown(response)
 
 # ── Onglet Architecture ───────────────────────────────────────────────────────
 

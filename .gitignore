@@ -15,3 +15,6 @@ data/processed/*
 *.pyc
 adoption-assistant/
 data/um6p/learning_center/*.csv
+
+# Local Booking validation data
+data/um6p/booking/*.csv

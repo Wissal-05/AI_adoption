@@ -168,9 +168,30 @@ def load_dashboard_data() -> DashboardData:
         web_log_frames.append(lc_web_logs)
 
     # ── Booking ────────────────────────────────────────────────────────────────
-    booking_config = DataSourceConfig("booking", settings.booking_repo_dir / "booking_usage.csv", "usage")
+    booking_config = DataSourceConfig(
+        "booking",
+        settings.booking_repo_dir / "usage-events-60d.csv",
+        "usage",
+    )
     booking_df = BookingSource(booking_config).load()
-    raw_by_source["booking"] = {}
+
+    booking_daily_kpis_path = settings.booking_repo_dir / "daily-kpis-60d.csv"
+    booking_daily_kpis = (
+        pd.read_csv(booking_daily_kpis_path)
+        if booking_daily_kpis_path.exists()
+        else pd.DataFrame()
+    )
+
+    if not booking_daily_kpis.empty:
+        booking_daily_kpis["date"] = pd.to_datetime(
+            booking_daily_kpis["date"],
+            errors="coerce",
+        )
+
+    raw_by_source["booking"] = {
+        "daily_kpis": booking_daily_kpis,
+    }
+
     if not booking_df.empty:
         usage_frames.append(booking_df)
         available_sources.append("booking")

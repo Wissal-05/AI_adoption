@@ -89,7 +89,19 @@ class KeywordEngine(AssistantPort):
             "taux adoption",
         ],
         "underused": ["moins utilisé", "least-used", "sous-utilisé", "underused", "peu utilisé"],
-        "department": ["département", "department", "service métier", "équipe"],
+        "department": [
+            "département",
+            "departement",
+            "department",
+            "direction",
+            "entité",
+            "entite",
+            "entity",
+            "service métier",
+            "service metier",
+            "équipe",
+            "equipe",
+        ],
         "inactive": ["inactif", "inactive", "absent", "dormant", "plus actif"],
         "security": ["attaque", "malicious", "suspicious", "sécurité", "security", "route suspecte", "intrusion", "suspecte"],
         
@@ -140,9 +152,13 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame,
         daily_kpis_df: pd.DataFrame,
     ) -> str:
+        latest = self._latest_daily_kpis(daily_kpis_df)
+
+        if latest is not None:
+            return f"**MAU :** {latest['mau']:,} utilisateurs actifs."
+
         metrics = self._adoption_metrics(usage_df)
         return f"**MAU :** {metrics['mau']:,} utilisateurs actifs."
-
 
     def _handle_dau(
         self,
@@ -150,6 +166,11 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame,
         daily_kpis_df: pd.DataFrame,
     ) -> str:
+        latest = self._latest_daily_kpis(daily_kpis_df)
+
+        if latest is not None:
+            return f"**DAU :** {latest['dau']:,} utilisateurs actifs."
+
         metrics = self._adoption_metrics(usage_df)
         return f"**DAU :** {metrics['dau']:,} utilisateurs actifs."
 
@@ -159,6 +180,11 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame,
         daily_kpis_df: pd.DataFrame,
     ) -> str:
+        latest = self._latest_daily_kpis(daily_kpis_df)
+
+        if latest is not None:
+            return f"**WAU :** {latest['wau']:,} utilisateurs actifs."
+
         metrics = self._adoption_metrics(usage_df)
         return f"**WAU :** {metrics['wau']:,} utilisateurs actifs."
 
@@ -190,6 +216,16 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame,
         daily_kpis_df: pd.DataFrame,
     ) -> str:
+        latest = self._latest_daily_kpis(daily_kpis_df)
+
+        if latest is not None:
+            return (
+                "**KPI d’adoption :**\n"
+                f"- DAU : {latest['dau']:,}\n"
+                f"- WAU : {latest['wau']:,}\n"
+                f"- MAU : {latest['mau']:,}"
+            )
+
         metrics = self._adoption_metrics(usage_df)
 
         return (
@@ -291,6 +327,31 @@ class KeywordEngine(AssistantPort):
             compact = ", ".join(f"{key}={value}" for key, value in record.items())
             lines.append(f"- {compact}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _latest_daily_kpis(daily_kpis_df: pd.DataFrame) -> dict | None:
+        if daily_kpis_df.empty:
+            return None
+
+        required_columns = {"dau", "wau", "mau"}
+        if not required_columns.issubset(daily_kpis_df.columns):
+            return None
+
+        data = daily_kpis_df.copy()
+        data["date"] = pd.to_datetime(data["date"], errors="coerce")
+        data = data.dropna(subset=["date"]).sort_values("date")
+
+        if data.empty:
+            return None
+
+        last = data.iloc[-1]
+
+        return {
+            "dau": int(last["dau"]),
+            "wau": int(last["wau"]),
+            "mau": int(last["mau"]),
+            "date": last["date"].date(),
+        }
 
     @staticmethod
     def _default_response() -> str:
