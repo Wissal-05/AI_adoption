@@ -53,37 +53,13 @@ if st.sidebar.button("Rafraîchir les données"):
     st.rerun()
 
 with st.sidebar:
-    st.header("Sources")
-    st.caption(f"Learning Center: `{data.learning_center_source_dir}`")
-    if data.booking_available:
-        st.caption("Booking: ✅ disponible")
-    else:
-        st.caption("Booking: ⏳ en attente d'accès")
-
-    if data.available_sources:
-        st.caption(f"Sources actives: {', '.join(data.available_sources)}")
-
-    
-    # ── Statut de fraîcheur des données ───────────────────────────────────────
-    st.header("Fraîcheur des données")
-    freshness_service = DataFreshnessService()
-    for src in data.available_sources:
-        report = freshness_service.get_freshness(src)
-        st.caption(f"**{src.replace('_', ' ').title()}**")
-        if report.status.startswith("À jour"):
-            st.success(f"Statut : {report.status}\n\nÂge : {report.data_age_formatted}")
-        else:
-            st.warning(f"Statut : {report.status}\n\nÂge : {report.data_age_formatted}")
-        if report.last_success_run:
-            st.caption(f"Dernière ingestion : {report.last_success_run[:16].replace('T', ' ')}")
-
     st.header("Filtres")
     filter_opts = dashboard_service.get_filter_options(data.usage_events)
     selected_services = st.multiselect(
         "Services", filter_opts["services"], default=filter_opts["services"]
     )
     selected_departments = st.multiselect(
-        "Départements", filter_opts["departments"], default=filter_opts["departments"]
+        "Entités / campus", filter_opts["departments"], default=filter_opts["departments"]
     )
 
 filtered_usage = DashboardService.apply_filters(
@@ -103,10 +79,7 @@ learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab, arc
 with learning_center_tab:
     lc_vm = dashboard_service.get_learning_center_view()
     st.subheader("Learning Center website")
-    st.caption(
-        "KPI d’adoption calculés depuis `nginx-events.csv`. "
-        "Trafic et erreurs issus de `daily-kpis.csv` et `top-routes.csv`."
-    )
+    
 
     with st.container(horizontal=True):
         st.metric("DAU", f"{lc_vm.latest_kpis['dau']:,}", border=True)
@@ -125,7 +98,7 @@ with learning_center_tab:
         request_cols = ["date", "total_requests", "human_requests", "page_views",
                         "api_requests", "errors_4xx", "errors_5xx"]
         with st.container(border=True):
-            st.subheader("Requêtes et erreurs")
+            st.subheader("Trafic et erreurs techniques")
             st.line_chart(lc_vm.daily_kpis[request_cols], x="date", y=request_cols[1:])
     else:
         st.info("Aucun `daily-kpis.csv` Learning Center n'a été trouvé.")
@@ -137,7 +110,7 @@ with learning_center_tab:
             st.dataframe(lc_vm.top_routes.head(25), hide_index=True)
     with route_right:
         with st.container(border=True):
-            st.subheader("Types de routes")
+            st.subheader("Répartition par type de route")
             if not lc_vm.route_summary.empty:
                 st.bar_chart(lc_vm.route_summary, x="route_type", y="requests")
             else:
@@ -423,5 +396,4 @@ with assistant_tab:
 
         st.rerun()
 # ── Onglet Architecture ───────────────────────────────────────────────────────
-
 
