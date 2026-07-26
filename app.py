@@ -36,7 +36,7 @@ st.set_page_config(page_title="AI Adoption Analytics", layout="wide")
 
 # ── Chargement des données (mis en cache par session) ─────────────────────────
 
-@st.cache_data(show_spinner="Chargement des sources de données...")
+@st.cache_resource(show_spinner="Chargement des données...")
 def load_data():
     service = DashboardService()
     data = service.load()
@@ -48,6 +48,9 @@ dashboard_service, data = load_data()
 
 
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
+if st.sidebar.button("Rafraîchir les données"):
+    load_data.clear()
+    st.rerun()
 
 with st.sidebar:
     st.header("Sources")
@@ -60,6 +63,7 @@ with st.sidebar:
     if data.available_sources:
         st.caption(f"Sources actives: {', '.join(data.available_sources)}")
 
+    
     # ── Statut de fraîcheur des données ───────────────────────────────────────
     st.header("Fraîcheur des données")
     freshness_service = DataFreshnessService()
