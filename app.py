@@ -78,15 +78,23 @@ learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab, arc
 
 with learning_center_tab:
     lc_vm = dashboard_service.get_learning_center_view()
+    lc_display_kpis = lc_vm.latest_kpis.copy()
+
+    if not lc_vm.daily_trend.empty:
+        latest_trend = lc_vm.daily_trend.sort_values("date").iloc[-1]
+        lc_display_kpis["dau"] = int(latest_trend["dau"])
+        lc_display_kpis["wau"] = int(latest_trend["wau"])
+        lc_display_kpis["mau"] = int(latest_trend["mau"])
     st.subheader("Learning Center website")
     
 
     with st.container(horizontal=True):
-        st.metric("DAU", f"{lc_vm.latest_kpis['dau']:,}", border=True)
-        st.metric("WAU", f"{lc_vm.latest_kpis['wau']:,}", border=True)
-        st.metric("MAU", f"{lc_vm.latest_kpis['mau']:,}", border=True)
-        st.metric("Taux d'erreur", f"{lc_vm.latest_kpis['error_rate']:.2%}", border=True)
+        st.metric("DAU", f"{lc_display_kpis['dau']:,}", border=True)
+        st.metric("WAU", f"{lc_display_kpis['wau']:,}", border=True)
+        st.metric("MAU", f"{lc_display_kpis['mau']:,}", border=True)
+        st.metric("Taux d'erreur", f"{lc_display_kpis['error_rate']:.2%}", border=True)
 
+        
     if not lc_vm.daily_kpis.empty:
         with st.container(border=True):
             st.subheader("Tendance d'adoption")
@@ -95,11 +103,36 @@ with learning_center_tab:
                 x="date",
                 y=["dau", "wau", "mau"],
             )
-        request_cols = ["date", "total_requests", "human_requests", "page_views",
-                        "api_requests", "errors_4xx", "errors_5xx"]
+        
+        request_cols = [
+            "date",
+            "total_requests",
+            "human_requests",
+            "page_views",
+            "api_requests",
+            "errors_4xx",
+            "errors_5xx",
+        ]
+
+        traffic_labels = {
+            "total_requests": "Requêtes totales",
+            "human_requests": "Requêtes utilisateurs",
+            "page_views": "Pages vues",
+            "api_requests": "Appels API",
+            "errors_4xx": "Erreurs client 4xx",
+            "errors_5xx": "Erreurs serveur 5xx",
+        }
+
+        traffic_df = lc_vm.daily_kpis[request_cols].rename(columns=traffic_labels)
+
         with st.container(border=True):
             st.subheader("Trafic et erreurs techniques")
-            st.line_chart(lc_vm.daily_kpis[request_cols], x="date", y=request_cols[1:])
+            st.line_chart(
+                traffic_df,
+                x="date",
+                y=list(traffic_labels.values()),
+            )
+            
     else:
         st.info("Aucun `daily-kpis.csv` Learning Center n'a été trouvé.")
 
@@ -121,6 +154,12 @@ with learning_center_tab:
 
 with adoption_tab:
     adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
+    st.subheader("Vue globale de l’adoption")
+    st.caption(
+        "Analyse multi-service basée sur les données filtrées : "
+        "utilisateurs actifs, fréquence d’utilisation, activité par service "
+        "et répartition par entité ou campus."
+    )
 
     with st.container(horizontal=True):
         st.metric("DAU", f"{adoption_vm.metrics['dau']:,}", border=True)
@@ -133,25 +172,45 @@ with adoption_tab:
             st.subheader("Activité par service")
             st.line_chart(adoption_vm.timeseries, x="date", y="active_users", color="service")
 
-    left, right = st.columns(2)
-    with left:
         with st.container(border=True):
-            st.subheader("Usage par département")
-            st.dataframe(adoption_vm.departmental, hide_index=True)
-    with right:
-        with st.container(border=True):
-            st.subheader("Services sous-utilisés")
-            st.dataframe(adoption_vm.underused, hide_index=True)
+            st.subheader("Usage par entité / campus")
 
-    with st.container(border=True):
-        st.subheader("Utilisateurs inactifs")
-        st.dataframe(adoption_vm.inactive, hide_index=True)
+            entity_usage = adoption_vm.departmental.copy()
 
-    st.subheader("Synthèse hebdomadaire")
-    st.write(adoption_vm.weekly_summary)
+            if not entity_usage.empty:
+                entity_usage["department"] = entity_usage["department"].replace(
+                    {"Unknown": "Non renseigné"}
+                )
 
-    for alert in adoption_vm.alerts:
-        st.warning(alert)
+                entity_usage = entity_usage.rename(
+                    columns={
+                        "department": "Entité / campus",
+                        "service": "Service",
+                        "active_users": "Utilisateurs actifs",
+                        "events": "Événements",
+                        "avg_events_per_user": "Événements / utilisateur",
+                        "share_of_active_users": "Part des utilisateurs actifs (%)",
+                    }
+                )
+
+                st.dataframe(
+                    entity_usage,
+                    hide_index=True,
+                    width="stretch",
+                )
+            else:
+                st.info("Aucune donnée d’usage par entité ou campus disponible.")
+    
+
+    #with st.container(border=True):
+     #   st.subheader("Utilisateurs inactifs")
+      #  st.dataframe(adoption_vm.inactive, hide_index=True)
+
+    #st.subheader("Synthèse hebdomadaire")
+    #st.write(adoption_vm.weekly_summary)
+
+    #for alert in adoption_vm.alerts:
+     #   st.warning(alert)
 
 
 # ── Onglet Security Analytics ─────────────────────────────────────────────────
@@ -301,7 +360,7 @@ with booking_tab:
 with assistant_tab:
     st.subheader("Assistant IA d’adoption")
     assistant = get_assistant()
-    st.caption(f"Moteur actif : `{assistant}`")
+    
 
     if "assistant_chat_history" not in st.session_state:
         st.session_state.assistant_chat_history = [
