@@ -69,10 +69,42 @@ filtered_usage = DashboardService.apply_filters(
 
 # ── Onglets ────────────────────────────────────────────────────────────────────
 
-learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
-    ["Learning Center", "Adoption détaillée", "Security Analytics", "Booking", "Assistant IA"]
+dashboard_tab,learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
+    ["Dashboard adoption","Learning Center", "Adoption détaillée", "Security Analytics", "Booking", "Assistant IA"]
 )
 
+# ── Onglet Dashboard adoption unifié ───────────────────────────────────────────
+
+with dashboard_tab:
+    st.subheader("Dashboard adoption unifié")
+    st.caption(
+        "Vue centrale multi-application basée sur un modèle commun de données. "
+        "Les services sont analysés avec la même structure afin d'assurer une expérience cohérente."
+    )
+
+    adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
+
+    st.markdown(
+        """
+        **Principe :** chaque application est affichée avec les mêmes champs et les mêmes KPI.  
+        Lorsqu'une donnée n'est pas disponible pour un service, elle est indiquée comme **Non renseigné** ou **Non calculable**.
+        """
+    )
+
+    with st.container(horizontal=True):
+        st.metric("DAU", f"{adoption_vm.metrics['dau']:,}", border=True)
+        st.metric("WAU", f"{adoption_vm.metrics['wau']:,}", border=True)
+        st.metric("MAU", f"{adoption_vm.metrics['mau']:,}", border=True)
+        st.metric(
+            "Fréquence moyenne",
+            f"{adoption_vm.metrics['avg_events_per_active_user']:.1f}",
+            border=True,
+        )
+
+    st.info(
+        "Le taux d’utilisation réel nécessite la population éligible par service. "
+        "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
+    )
 
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
 
