@@ -114,6 +114,90 @@ def build_unified_adoption_trend(usage_df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
+def prepare_unified_entity_usage_table(departmental_df: pd.DataFrame) -> pd.DataFrame:
+    """Prépare une table commune d'usage par entité/campus pour tous les services."""
+
+    display_columns = [
+        "Entité / campus",
+        "Service",
+        "Utilisateurs actifs",
+        "Événements",
+        "Événements / utilisateur",
+        "Part des utilisateurs actifs (%)",
+        "Taux d’utilisation",
+        "Statut données",
+    ]
+
+    if departmental_df.empty:
+        return pd.DataFrame(columns=display_columns)
+
+    data = departmental_df.copy()
+
+    source_columns = {
+        "department": "Entité / campus",
+        "service": "Service",
+        "active_users": "Utilisateurs actifs",
+        "events": "Événements",
+        "avg_events_per_user": "Événements / utilisateur",
+        "share_of_active_users": "Part des utilisateurs actifs (%)",
+    }
+
+    for source_column in source_columns:
+        if source_column not in data.columns:
+            if source_column in {"department", "service"}:
+                data[source_column] = "Non renseigné"
+            else:
+                data[source_column] = 0
+
+    data = data[list(source_columns.keys())].rename(columns=source_columns)
+
+    data["Entité / campus"] = (
+        data["Entité / campus"]
+        .fillna("Non renseigné")
+        .replace({"Unknown": "Non renseigné", "": "Non renseigné"})
+    )
+
+    data["Service"] = (
+        data["Service"]
+        .fillna("Non renseigné")
+        .replace({"Unknown": "Non renseigné", "": "Non renseigné"})
+    )
+
+    numeric_columns = [
+        "Utilisateurs actifs",
+        "Événements",
+        "Événements / utilisateur",
+        "Part des utilisateurs actifs (%)",
+    ]
+
+    for column in numeric_columns:
+        data[column] = pd.to_numeric(data[column], errors="coerce").fillna(0)
+
+    data["Utilisateurs actifs"] = data["Utilisateurs actifs"].astype(int)
+    data["Événements"] = data["Événements"].astype(int)
+    data["Événements / utilisateur"] = data["Événements / utilisateur"].round(2)
+    data["Part des utilisateurs actifs (%)"] = data[
+        "Part des utilisateurs actifs (%)"
+    ].round(2)
+
+    data["Taux d’utilisation"] = "Non calculable"
+
+    data["Statut données"] = data["Entité / campus"].apply(
+        lambda entity: (
+            "Mapping entité/campus manquant"
+            if entity == "Non renseigné"
+            else "Population éligible manquante"
+        )
+    )
+
+    data = data.sort_values(
+        by=["Service", "Utilisateurs actifs"],
+        ascending=[True, False],
+    ).reset_index(drop=True)
+
+    return data[display_columns]
+
+
 
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
 if st.sidebar.button("Rafraîchir les données"):
@@ -150,7 +234,7 @@ with dashboard_tab:
         "Les services sont analysés avec la même structure afin d'assurer une expérience cohérente."
     )
 
-    adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
+    dashboard_adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
 
     st.markdown(
         """
@@ -160,12 +244,12 @@ with dashboard_tab:
     )
 
     with st.container(horizontal=True):
-        st.metric("DAU", f"{adoption_vm.metrics['dau']:,}", border=True)
-        st.metric("WAU", f"{adoption_vm.metrics['wau']:,}", border=True)
-        st.metric("MAU", f"{adoption_vm.metrics['mau']:,}", border=True)
+        st.metric("DAU", f"{dashboard_adoption_vm.metrics['dau']:,}", border=True)
+        st.metric("WAU", f"{dashboard_adoption_vm.metrics['wau']:,}", border=True)
+        st.metric("MAU", f"{dashboard_adoption_vm.metrics['mau']:,}", border=True)
         st.metric(
             "Fréquence moyenne",
-            f"{adoption_vm.metrics['avg_events_per_active_user']:.1f}",
+            f"{dashboard_adoption_vm.metrics['avg_events_per_active_user']:.1f}",
             border=True,
         )
 
@@ -173,6 +257,8 @@ with dashboard_tab:
         "Le taux d’utilisation réel nécessite la population éligible par service. "
         "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
     )
+
+    # ── Évolution de l’adoption ────────────────────────────────────────────────
 
     unified_trend = build_unified_adoption_trend(filtered_usage)
 
@@ -182,7 +268,9 @@ with dashboard_tab:
         if unified_trend.empty:
             st.info("Aucune donnée disponible pour afficher l’évolution de l’adoption.")
         else:
-            available_services = sorted(unified_trend["service"].dropna().unique().tolist())
+            available_services = sorted(
+                unified_trend["service"].dropna().unique().tolist()
+            )
 
             kpi_mapping = {
                 "DAU": "dau",
@@ -260,6 +348,47 @@ with dashboard_tab:
                     key="unified_trend_kpi",
                 )
 
+    # ── Usage par entité / campus ──────────────────────────────────────────────
+
+    unified_entity_usage = prepare_unified_entity_usage_table(
+        dashboard_adoption_vm.departmental
+    )
+
+    with st.container(border=True):
+        st.subheader("Usage par entité / campus")
+
+        st.caption(
+            "Table commune appliquée à tous les services. "
+            "Les champs indisponibles restent visibles afin de distinguer les données calculées "
+            "des données manquantes."
+        )
+
+        if unified_entity_usage.empty:
+            st.info("Aucune donnée disponible pour l’usage par entité ou campus.")
+        else:
+            st.dataframe(
+                unified_entity_usage,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Utilisateurs actifs": st.column_config.NumberColumn(
+                        "Utilisateurs actifs",
+                        format="%d",
+                    ),
+                    "Événements": st.column_config.NumberColumn(
+                        "Événements",
+                        format="%d",
+                    ),
+                    "Événements / utilisateur": st.column_config.NumberColumn(
+                        "Événements / utilisateur",
+                        format="%.2f",
+                    ),
+                    "Part des utilisateurs actifs (%)": st.column_config.NumberColumn(
+                        "Part des utilisateurs actifs (%)",
+                        format="%.2f",
+                    ),
+                },
+            )
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
 
 with learning_center_tab:
