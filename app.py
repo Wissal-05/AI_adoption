@@ -197,6 +197,182 @@ def prepare_unified_entity_usage_table(departmental_df: pd.DataFrame) -> pd.Data
 
     return data[display_columns]
 
+def classify_interaction_type(service: str, interaction: str) -> str:
+    """Classe une interaction dans une catégorie commune."""
+
+    service_text = str(service).lower()
+    interaction_text = str(interaction).lower()
+
+    if "booking" in service_text:
+        return "Action métier"
+
+    if interaction_text.startswith("/api") or "/api/" in interaction_text:
+        return "API"
+
+    if interaction_text.startswith("/") or interaction_text.startswith("http"):
+        return "Page / route"
+
+    if "matomo" in service_text:
+        return "Événement web"
+
+    return "Événement d’usage"
+
+def prepare_unified_top_interactions_table(
+    usage_df: pd.DataFrame,
+    web_logs_df: pd.DataFrame | None = None,
+    top_n: int = 15,
+) -> pd.DataFrame:
+    """Prépare une table commune des interactions les plus fréquentes."""
+
+    display_columns = [
+        "Service",
+        "Type d’interaction",
+        "Interaction",
+        "Événements",
+        "Part des événements (%)",
+        "Statut données",
+    ]
+
+    rows = []
+
+    if usage_df.empty or "service" not in usage_df.columns:
+        return pd.DataFrame(columns=display_columns)
+
+    services_in_scope = set(
+        usage_df["service"].dropna().astype(str).unique().tolist()
+    )
+
+    # Booking : actions métier depuis les événements normalisés
+    if "action" in usage_df.columns:
+        booking_events = usage_df[
+            usage_df["service"].astype(str).str.lower().eq("booking")
+        ].copy()
+
+        if not booking_events.empty:
+            booking_events["interaction"] = (
+                booking_events["action"]
+                .fillna("Non renseigné")
+                .astype(str)
+                .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
+            )
+
+            booking_grouped = (
+                booking_events.groupby("interaction")
+                .size()
+                .reset_index(name="events")
+            )
+
+            booking_total = booking_grouped["events"].sum()
+
+            for _, row in booking_grouped.iterrows():
+                interaction = row["interaction"]
+                events = int(row["events"])
+
+                rows.append(
+                    {
+                        "Service": "Booking",
+                        "Type d’interaction": classify_interaction_type(
+                            "Booking",
+                            interaction,
+                        ),
+                        "Interaction": interaction,
+                        "Événements": events,
+                        "Part des événements (%)": round(
+                            events / booking_total * 100,
+                            2,
+                        )
+                        if booking_total
+                        else 0,
+                        "Statut données": (
+                            "Interaction non renseignée"
+                            if interaction == "Non renseigné"
+                            else "Disponible"
+                        ),
+                    }
+                )
+
+    # Learning Center : vraies pages/routes depuis les logs web
+    if (
+        "Learning Center" in services_in_scope
+        and web_logs_df is not None
+        and not web_logs_df.empty
+    ):
+        lc_logs = web_logs_df.copy()
+
+        if "service" in lc_logs.columns:
+            lc_logs = lc_logs[
+                lc_logs["service"].astype(str).str.lower().eq("learning center")
+            ]
+
+        if "analytics_eligible" in lc_logs.columns:
+            lc_logs = lc_logs[lc_logs["analytics_eligible"].fillna(False)]
+        else:
+            if "is_static" in lc_logs.columns:
+                lc_logs = lc_logs[~lc_logs["is_static"].fillna(False)]
+            if "is_bot" in lc_logs.columns:
+                lc_logs = lc_logs[~lc_logs["is_bot"].fillna(False)]
+
+        interaction_column = None
+
+        for candidate_column in ["page", "route", "path"]:
+            if candidate_column in lc_logs.columns:
+                interaction_column = candidate_column
+                break
+
+        if interaction_column is not None and not lc_logs.empty:
+            lc_logs["interaction"] = (
+                lc_logs[interaction_column]
+                .fillna("Non renseigné")
+                .astype(str)
+                .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
+            )
+
+            lc_grouped = (
+                lc_logs.groupby("interaction")
+                .size()
+                .reset_index(name="events")
+            )
+
+            lc_total = lc_grouped["events"].sum()
+
+            for _, row in lc_grouped.iterrows():
+                interaction = row["interaction"]
+                events = int(row["events"])
+
+                rows.append(
+                    {
+                        "Service": "Learning Center",
+                        "Type d’interaction": classify_interaction_type(
+                            "Learning Center",
+                            interaction,
+                        ),
+                        "Interaction": interaction,
+                        "Événements": events,
+                        "Part des événements (%)": round(
+                            events / lc_total * 100,
+                            2,
+                        )
+                        if lc_total
+                        else 0,
+                        "Statut données": (
+                            "Interaction non renseignée"
+                            if interaction == "Non renseigné"
+                            else "Disponible"
+                        ),
+                    }
+                )
+
+    if not rows:
+        return pd.DataFrame(columns=display_columns)
+
+    result = pd.DataFrame(rows)
+
+    result = result.sort_values(
+        by="Événements",
+        ascending=False,
+    ).head(top_n)
+
+    return result[display_columns].reset_index(drop=True)
 
 
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
@@ -389,6 +565,41 @@ with dashboard_tab:
                     ),
                 },
             )
+    # ── Top interactions ──────────────────────────────────────────────────────
+
+    unified_top_interactions = prepare_unified_top_interactions_table(
+        filtered_usage,
+        web_logs_df=data.web_logs,
+        top_n=15,
+    )
+
+    with st.container(border=True):
+        st.subheader("Top interactions")
+
+        st.caption(
+            "Vue commune des pages, routes, API ou actions métier les plus fréquentes. "
+            "Le type d’interaction permet d’utiliser une même structure pour tous les services."
+        )
+
+        if unified_top_interactions.empty:
+            st.info("Aucune interaction disponible pour les filtres sélectionnés.")
+        else:
+            st.dataframe(
+                unified_top_interactions,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Événements": st.column_config.NumberColumn(
+                        "Événements",
+                        format="%d",
+                    ),
+                    "Part des événements (%)": st.column_config.NumberColumn(
+                        "Part des événements (%)",
+                        format="%.2f",
+                    ),
+                },
+            )
+
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
 
 with learning_center_tab:
