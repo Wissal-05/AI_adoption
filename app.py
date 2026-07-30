@@ -69,8 +69,8 @@ filtered_usage = DashboardService.apply_filters(
 
 # ── Onglets ────────────────────────────────────────────────────────────────────
 
-learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab, architecture_tab = st.tabs(
-    ["Learning Center", "Adoption détaillée", "Security Analytics", "Booking", "Assistant IA", "Architecture"]
+learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
+    ["Learning Center", "Adoption détaillée", "Security Analytics", "Booking", "Assistant IA"]
 )
 
 
