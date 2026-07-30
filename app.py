@@ -139,7 +139,7 @@ with learning_center_tab:
     route_left, route_right = st.columns(2)
     with route_left:
         with st.container(border=True):
-            st.subheader("Top routes")
+            st.subheader("Pages / routes les plus consultées")
             st.dataframe(lc_vm.top_routes.head(25), hide_index=True)
     with route_right:
         with st.container(border=True):
