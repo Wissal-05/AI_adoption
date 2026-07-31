@@ -498,6 +498,97 @@ def prepare_unified_data_quality_table(
 
     return pd.DataFrame(rows)[display_columns]
 
+def prepare_kpi_interpretation(
+    metrics: dict,
+    usage_df: pd.DataFrame,
+) -> dict:
+    """Génère une interprétation contrôlée des KPI communs."""
+
+    dau = int(metrics.get("dau", 0))
+    wau = int(metrics.get("wau", 0))
+    mau = int(metrics.get("mau", 0))
+    frequency = float(metrics.get("avg_events_per_active_user", 0))
+
+    services = []
+
+    if not usage_df.empty and "service" in usage_df.columns:
+        services = sorted(
+            usage_df["service"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+
+    if len(services) == 0:
+        service_scope = "aucun service disponible avec les filtres actuels"
+    elif len(services) == 1:
+        service_scope = f"le service {services[0]}"
+    else:
+        service_scope = f"{len(services)} services : {', '.join(services)}"
+
+    observation = (
+        f"Les KPI affichés couvrent {service_scope}. "
+        f"Ils indiquent {dau:,} utilisateurs actifs quotidiens, "
+        f"{wau:,} utilisateurs actifs hebdomadaires, "
+        f"{mau:,} utilisateurs actifs mensuels et une fréquence moyenne de "
+        f"{frequency:.1f} événements par utilisateur actif."
+    )
+
+    if mau == 0:
+        interpretation = (
+            "Aucun utilisateur actif mensuel n’est observé avec les filtres actuels. "
+            "Cela peut venir d’une période sans activité, d’un filtre trop restrictif "
+            "ou d’une indisponibilité des données."
+        )
+    elif dau > 0 and dau / mau < 0.05:
+        interpretation = (
+            "L’écart entre le DAU et le MAU indique que l’audience mensuelle est "
+            "beaucoup plus large que l’activité quotidienne. Cela peut refléter un usage "
+            "non quotidien, ponctuel ou dépendant du type de service analysé."
+        )
+    elif frequency > 100:
+        interpretation = (
+            "La fréquence moyenne est élevée, ce qui indique une forte intensité d’usage "
+            "par utilisateur actif. Cette intensité peut être positive, mais elle doit être "
+            "analysée avec prudence pour vérifier si elle est répartie entre plusieurs "
+            "utilisateurs ou concentrée sur quelques profils."
+        )
+    else:
+        interpretation = (
+            "Les KPI donnent une première lecture de l’usage observé. Ils permettent de "
+            "suivre l’activité, mais ne suffisent pas seuls à conclure sur le taux réel "
+            "d’adoption."
+        )
+
+    recommendation = (
+        "Comparer ces KPI avec la population éligible par service afin de calculer "
+        "un vrai taux d’utilisation. Il est aussi recommandé d’analyser les résultats "
+        "par service, entité et période pour éviter les conclusions globales trop rapides."
+    )
+
+    return {
+        "observation": observation,
+        "interpretation": interpretation,
+        "recommendation": recommendation,
+    }
+
+def render_interpretation_popover(insight: dict) -> None:
+    """Affiche une interprétation structurée dans un popover."""
+
+    st.caption(
+        "Interprétation contrôlée basée sur les KPI calculés par le moteur Python."
+    )
+
+    st.markdown("**Observation**")
+    st.write(insight["observation"])
+
+    st.markdown("**Interprétation**")
+    st.write(insight["interpretation"])
+
+    st.markdown("**Recommandation**")
+    st.write(insight["recommendation"])
+
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
 if st.sidebar.button("Rafraîchir les données"):
     load_data.clear()
@@ -541,6 +632,23 @@ with dashboard_tab:
         Lorsqu'une donnée n'est pas disponible pour un service, elle est indiquée comme **Non renseigné** ou **Non calculable**.
         """
     )
+
+    kpi_interpretation = prepare_kpi_interpretation(
+        dashboard_adoption_vm.metrics,
+        filtered_usage,
+    )
+
+    kpi_title_col, kpi_popover_col = st.columns(
+        [4, 1],
+        vertical_alignment="center",
+    )
+
+    with kpi_title_col:
+        st.subheader("Vue d’ensemble KPI")
+
+    with kpi_popover_col:
+        with st.popover("💡 Interprétation IA"):
+            render_interpretation_popover(kpi_interpretation)
 
     with st.container(horizontal=True):
         st.metric("DAU", f"{dashboard_adoption_vm.metrics['dau']:,}", border=True)
