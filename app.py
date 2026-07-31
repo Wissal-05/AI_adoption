@@ -924,6 +924,164 @@ def prepare_entity_usage_interpretation(entity_usage_df: pd.DataFrame) -> dict:
         "recommendation": recommendation,
     }
 
+def prepare_top_interactions_interpretation(top_interactions_df: pd.DataFrame) -> dict:
+    """Génère une interprétation contrôlée du tableau Top interactions."""
+
+    if top_interactions_df.empty:
+        return {
+            "observation": (
+                "Le tableau Top interactions ne contient pas de données avec les filtres actuels."
+            ),
+            "interpretation": (
+                "L'absence d'interactions empêche d'identifier les pages, routes, API "
+                "ou actions métier les plus utilisées."
+            ),
+            "recommendation": (
+                "Vérifier les filtres appliqués et la disponibilité des logs ou événements "
+                "d'usage pour les services sélectionnés."
+            ),
+        }
+
+    working_df = top_interactions_df.copy()
+
+    services_count = 0
+    if "Service" in working_df.columns:
+        services_count = working_df["Service"].dropna().astype(str).nunique()
+
+    interactions_count = len(working_df)
+
+    events_series = pd.Series(dtype=float)
+    total_events = 0
+
+    if "Événements" in working_df.columns:
+        events_series = pd.to_numeric(
+            working_df["Événements"],
+            errors="coerce",
+        ).fillna(0)
+        total_events = int(events_series.sum())
+
+    top_interaction_text = "aucune interaction principale identifiable"
+    top_share = None
+    top_type = "type non renseigné"
+    top_service = "service non renseigné"
+    top_interaction = "interaction non renseignée"
+    top_events = 0
+
+    if not events_series.empty and events_series.sum() > 0:
+        working_df["_events_numeric"] = events_series
+        top_row = working_df.sort_values(
+            "_events_numeric",
+            ascending=False,
+        ).iloc[0]
+
+        top_service = str(top_row.get("Service", "service non renseigné"))
+        top_type = str(top_row.get("Type d'interaction", "type non renseigné"))
+        top_interaction = str(top_row.get("Interaction", "interaction non renseignée"))
+        top_events = int(top_row.get("_events_numeric", 0))
+
+        if "Part des événements (%)" in working_df.columns:
+            top_share_value = str(top_row.get("Part des événements (%)", "")).replace("%", "")
+            top_share = pd.to_numeric(top_share_value, errors="coerce")
+
+        if pd.isna(top_share):
+            top_share = None
+
+        if top_share is not None:
+            top_interaction_text = (
+                f"{top_interaction} pour {top_service}, avec {top_events:,} événements "
+                f"et {float(top_share):.2f} % des événements affichés"
+            )
+        else:
+            top_interaction_text = (
+                f"{top_interaction} pour {top_service}, avec {top_events:,} événements"
+            )
+
+        working_df = working_df.drop(columns=["_events_numeric"])
+
+    if services_count == 0:
+        service_scope = "aucun service"
+    elif services_count == 1:
+        service_scope = "un service"
+    else:
+        service_scope = f"{services_count} services"
+
+    observation = (
+        f"Le tableau présente les principales interactions observées pour {service_scope}. "
+        f"{interactions_count} interactions sont affichées, avec un total de "
+        f"{total_events:,} événements dans ce classement. "
+        f"L'interaction dominante est : {top_interaction_text}."
+    )
+
+    if top_share is not None and float(top_share) >= 50:
+        concentration_sentence = (
+            "Une interaction concentre une part très importante de l'activité. "
+            "Cela indique qu'un parcours ou une fonctionnalité joue un rôle central "
+            "dans l'usage du service."
+        )
+    elif top_share is not None and float(top_share) >= 20:
+        concentration_sentence = (
+            "L'activité est partiellement concentrée sur quelques interactions principales. "
+            "Ces interactions représentent des parcours importants à surveiller."
+        )
+    else:
+        concentration_sentence = (
+            "L'activité semble répartie entre plusieurs interactions. "
+            "Cela peut indiquer des usages plus diversifiés selon les parcours."
+        )
+
+    top_type_lower = top_type.lower()
+
+    if "api" in top_type_lower:
+        type_sentence = (
+            "La présence d'API parmi les interactions principales montre que la performance "
+            "backend et la stabilité des endpoints sont importantes pour l'expérience utilisateur."
+        )
+    elif "action" in top_type_lower:
+        type_sentence = (
+            "La présence d'actions métier parmi les interactions principales montre que "
+            "l'analyse doit être reliée aux processus fonctionnels du service."
+        )
+    elif "page" in top_type_lower or "route" in top_type_lower:
+        type_sentence = (
+            "La présence de pages ou routes dominantes permet d'identifier les points "
+            "d'entrée et parcours les plus consultés."
+        )
+    else:
+        type_sentence = (
+            "Les interactions affichées donnent une première lecture des usages dominants, "
+            "mais leur signification métier doit être validée avec l'équipe applicative."
+        )
+
+    interpretation = f"{concentration_sentence} {type_sentence}"
+
+    if top_share is not None and float(top_share) >= 50:
+        recommendation = (
+            "Prioriser l'optimisation de l'interaction dominante : performance, stabilité, "
+            "ergonomie et monitoring. Vérifier aussi si cette concentration est normale "
+            "du point de vue métier ou si elle révèle un parcours trop répétitif."
+        )
+    elif "api" in top_type_lower:
+        recommendation = (
+            "Surveiller les routes API les plus sollicitées, analyser leurs temps de réponse "
+            "et envisager du caching ou une optimisation backend si le volume reste élevé."
+        )
+    elif "action" in top_type_lower:
+        recommendation = (
+            "Analyser les actions métier les plus fréquentes avec les équipes fonctionnelles "
+            "afin d'identifier les parcours à simplifier, automatiser ou mieux monitorer."
+        )
+    else:
+        recommendation = (
+            "Comparer ces interactions sur plusieurs périodes pour distinguer les usages "
+            "récurrents des pics ponctuels, puis prioriser les parcours les plus critiques."
+        )
+
+    return {
+        "observation": observation,
+        "interpretation": interpretation,
+        "recommendation": recommendation,
+    }
+
 # ── Onglets ────────────────────────────────────────────────────────────────────
 
 dashboard_tab,learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
@@ -1135,6 +1293,13 @@ with dashboard_tab:
 
     with st.container(border=True):
         st.subheader("Top interactions")
+
+        top_interactions_interpretation = prepare_top_interactions_interpretation(
+            unified_top_interactions,
+        )
+
+        with st.popover("💡 Interprétation IA"):
+            render_interpretation_popover(top_interactions_interpretation)
 
         st.caption(
             "Vue commune des pages, routes, API ou actions métier les plus fréquentes. "
