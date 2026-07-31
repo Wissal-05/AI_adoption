@@ -374,6 +374,129 @@ def prepare_unified_top_interactions_table(
 
     return result[display_columns].reset_index(drop=True)
 
+def prepare_unified_data_quality_table(
+    usage_df: pd.DataFrame,
+    departmental_df: pd.DataFrame,
+    web_logs_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Prépare une table de qualité des données par service."""
+
+    display_columns = [
+        "Service",
+        "Événements disponibles",
+        "Utilisateurs actifs observés",
+        "Entité / campus",
+        "Population éligible",
+        "Taux d’utilisation",
+        "Interactions",
+        "Statut global",
+        "Action recommandée",
+    ]
+
+    if usage_df.empty or "service" not in usage_df.columns:
+        return pd.DataFrame(columns=display_columns)
+
+    services = sorted(usage_df["service"].dropna().astype(str).unique().tolist())
+    rows = []
+
+    for service in services:
+        service_usage = usage_df[
+            usage_df["service"].astype(str).str.lower() == service.lower()
+        ].copy()
+
+        events_count = len(service_usage)
+
+        if "user_id" in service_usage.columns:
+            active_users = service_usage["user_id"].dropna().nunique()
+        else:
+            active_users = 0
+
+        # Statut entité / campus
+        entity_status = "Non disponible"
+
+        if not departmental_df.empty and "service" in departmental_df.columns:
+            service_departmental = departmental_df[
+                departmental_df["service"].astype(str).str.lower() == service.lower()
+            ].copy()
+
+            if not service_departmental.empty and "department" in service_departmental.columns:
+                entities = (
+                    service_departmental["department"]
+                    .fillna("Non renseigné")
+                    .replace({"Unknown": "Non renseigné", "": "Non renseigné"})
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+
+                meaningful_entities = [
+                    entity for entity in entities if entity != "Non renseigné"
+                ]
+
+                if meaningful_entities:
+                    entity_status = "Disponible"
+                else:
+                    entity_status = "Mapping manquant"
+
+        # Statut interactions
+        interactions_status = "Non disponible"
+
+        if service.lower() == "learning center":
+            if (
+                web_logs_df is not None
+                and not web_logs_df.empty
+                and any(column in web_logs_df.columns for column in ["page", "route", "path"])
+            ):
+                interactions_status = "Pages / routes disponibles"
+        else:
+            if "action" in service_usage.columns:
+                available_actions = (
+                    service_usage["action"]
+                    .dropna()
+                    .astype(str)
+                    .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
+                )
+                if not available_actions.empty:
+                    interactions_status = "Actions disponibles"
+
+        # Statut global
+        missing_items = []
+
+        if entity_status != "Disponible":
+            missing_items.append("mapping entité/campus")
+
+        missing_items.append("population éligible")
+
+        if interactions_status == "Non disponible":
+            missing_items.append("interactions")
+
+        if len(missing_items) == 1 and missing_items[0] == "population éligible":
+            global_status = "Partiel"
+        else:
+            global_status = "À compléter"
+
+        if not missing_items:
+            action_recommandee = "Aucune action prioritaire"
+        elif missing_items == ["population éligible"]:
+            action_recommandee = "Collecter population éligible"
+        else:
+            action_recommandee = "Collecter " + " + ".join(missing_items)
+
+        rows.append(
+            {
+                "Service": service,
+                "Événements disponibles": int(events_count),
+                "Utilisateurs actifs observés": int(active_users),
+                "Entité / campus": entity_status,
+                "Population éligible": "Manquante",
+                "Taux d’utilisation": "Non calculable",
+                "Interactions": interactions_status,
+                "Statut global": global_status,
+                "Action recommandée": action_recommandee,
+            }
+        )
+
+    return pd.DataFrame(rows)[display_columns]
 
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
 if st.sidebar.button("Rafraîchir les données"):
@@ -598,6 +721,64 @@ with dashboard_tab:
                         format="%.2f",
                     ),
                 },
+            )
+
+    # ── Données manquantes / Qualité des données ──────────────────────────────
+
+    unified_data_quality = prepare_unified_data_quality_table(
+        filtered_usage,
+        dashboard_adoption_vm.departmental,
+        web_logs_df=data.web_logs,
+    )
+
+    with st.container(border=True):
+        st.subheader("Données manquantes / Qualité des données")
+
+        st.caption(
+            "Cette section distingue les indicateurs calculables avec les données actuelles "
+            "des informations nécessaires pour mesurer une adoption métier complète."
+        )
+
+        if unified_data_quality.empty:
+            st.info("Aucune information disponible sur la qualité des données.")
+        else:
+            services_count = unified_data_quality["Service"].nunique()
+
+            services_with_missing_data = (
+                unified_data_quality["Statut global"]
+                .astype(str)
+                .isin(["Partiel", "À compléter"])
+                .sum()
+            )
+
+            with st.container(horizontal=True):
+                st.metric("Services analysés", services_count, border=True)
+                st.metric("Taux d’utilisation", "Non calculable", border=True)
+                st.metric(
+                    "Services avec données manquantes",
+                    int(services_with_missing_data),
+                    border=True,
+                )
+            
+            st.dataframe(
+                unified_data_quality,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Événements disponibles": st.column_config.NumberColumn(
+                        "Événements disponibles",
+                        format="%d",
+                    ),
+                    "Utilisateurs actifs observés": st.column_config.NumberColumn(
+                        "Utilisateurs actifs observés",
+                        format="%d",
+                    ),
+                },
+            )
+
+            st.info(
+                "Le taux d’utilisation réel nécessite une population éligible par service. "
+                "L’adoption par entité ou campus nécessite aussi un mapping utilisateur vers organisation."
             )
 
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
