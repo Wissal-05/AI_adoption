@@ -794,6 +794,136 @@ def prepare_evolution_interpretation(
         "recommendation": recommendation,
     }
 
+def prepare_entity_usage_interpretation(entity_usage_df: pd.DataFrame) -> dict:
+    """Génère une interprétation contrôlée du tableau Usage par entité / campus."""
+
+    if entity_usage_df.empty:
+        return {
+            "observation": (
+                "Le tableau Usage par entité / campus ne contient pas de données "
+                "avec les filtres actuels."
+            ),
+            "interpretation": (
+                "L'absence de données empêche d'analyser la répartition de l'usage "
+                "par organisation, campus ou entité."
+            ),
+            "recommendation": (
+                "Vérifier les filtres appliqués et la disponibilité du mapping "
+                "utilisateur vers entité, campus ou direction."
+            ),
+        }
+
+    working_df = entity_usage_df.copy()
+
+    services_count = 0
+    if "Service" in working_df.columns:
+        services_count = working_df["Service"].dropna().astype(str).nunique()
+
+    total_active_users = 0
+    if "Utilisateurs actifs" in working_df.columns:
+        active_users_series = pd.to_numeric(
+            working_df["Utilisateurs actifs"],
+            errors="coerce",
+        ).fillna(0)
+        total_active_users = int(active_users_series.sum())
+    else:
+        active_users_series = pd.Series(dtype=float)
+
+    has_entity_column = "Entité / campus" in working_df.columns
+    has_status_column = "Statut données" in working_df.columns
+
+    has_missing_mapping = False
+
+    if has_entity_column:
+        entities = (
+            working_df["Entité / campus"]
+            .fillna("Non renseigné")
+            .replace({"Unknown": "Non renseigné", "": "Non renseigné"})
+            .astype(str)
+            .tolist()
+        )
+        has_missing_mapping = "Non renseigné" in entities
+
+    if has_status_column:
+        status_values = (
+            working_df["Statut données"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+            .tolist()
+        )
+        has_missing_mapping = has_missing_mapping or any(
+            "mapping" in status or "manquant" in status
+            for status in status_values
+        )
+
+    top_entity_text = "aucune entité principale identifiable"
+
+    if (
+        has_entity_column
+        and "Service" in working_df.columns
+        and "Utilisateurs actifs" in working_df.columns
+        and not active_users_series.empty
+    ):
+        working_df["_active_users_numeric"] = active_users_series
+        top_row = working_df.sort_values(
+            "_active_users_numeric",
+            ascending=False,
+        ).iloc[0]
+
+        top_entity = str(top_row.get("Entité / campus", "Non renseigné"))
+        top_service = str(top_row.get("Service", "service non renseigné"))
+        top_active_users = int(top_row.get("_active_users_numeric", 0))
+
+        top_entity_text = (
+            f"{top_entity} pour {top_service} avec "
+            f"{top_active_users:,} utilisateurs actifs observés"
+        ).replace(",", " ")
+
+        working_df = working_df.drop(columns=["_active_users_numeric"])
+
+    if services_count == 0:
+        service_scope = "aucun service"
+    elif services_count == 1:
+        service_scope = "un service"
+    else:
+        service_scope = f"{services_count} services"
+
+    observation = (
+        f"Le tableau présente la répartition de l'usage par entité ou campus "
+        f"pour {service_scope}. Le total observé est de "
+        f"{total_active_users:,} utilisateurs actifs, et la principale ligne "
+        f"d'usage est : {top_entity_text}."
+    ).replace(",", " ")
+
+    if has_missing_mapping:
+        interpretation = (
+            "L'analyse par entité ou campus est partielle, car certaines lignes "
+            "contiennent un mapping organisationnel manquant ou non renseigné. "
+            "Cela signifie que l'usage est bien observé, mais qu'il ne peut pas "
+            "encore être totalement rattaché à une organisation."
+        )
+    else:
+        interpretation = (
+            "La répartition par entité ou campus est exploitable pour comparer "
+            "les niveaux d'usage entre organisations. Les écarts observés peuvent "
+            "indiquer des différences d'adoption, de besoin métier ou de maturité "
+            "numérique."
+        )
+
+    recommendation = (
+        "Compléter le mapping utilisateur vers entité, campus ou direction, puis "
+        "ajouter la population éligible par service. Cela permettra de passer "
+        "d'une lecture d'usage observé à une vraie mesure du taux d'adoption par "
+        "organisation."
+    )
+
+    return {
+        "observation": observation,
+        "interpretation": interpretation,
+        "recommendation": recommendation,
+    }
+
 # ── Onglets ────────────────────────────────────────────────────────────────────
 
 dashboard_tab,learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
@@ -955,6 +1085,13 @@ with dashboard_tab:
 
     with st.container(border=True):
         st.subheader("Usage par entité / campus")
+
+        entity_usage_interpretation = prepare_entity_usage_interpretation(
+            unified_entity_usage,
+        )
+
+        with st.popover("💡 Interprétation IA"):
+            render_interpretation_popover(entity_usage_interpretation)
 
         st.caption(
             "Table commune appliquée à tous les services. "
