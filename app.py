@@ -1082,6 +1082,181 @@ def prepare_top_interactions_interpretation(top_interactions_df: pd.DataFrame) -
         "recommendation": recommendation,
     }
 
+def prepare_data_quality_interpretation(data_quality_df: pd.DataFrame) -> dict:
+    """Génère une interprétation contrôlée du bloc Données manquantes / Qualité des données."""
+
+    if data_quality_df.empty:
+        return {
+            "observation": (
+                "La section Qualité des données ne contient aucune information avec "
+                "les filtres actuels."
+            ),
+            "interpretation": (
+                "Il n'est pas possible d'évaluer la fiabilité de l'analyse sans données "
+                "de qualité disponibles par service."
+            ),
+            "recommendation": (
+                "Vérifier la disponibilité des sources de données et relancer l'analyse "
+                "sur une période contenant des événements exploitables."
+            ),
+        }
+
+    working_df = data_quality_df.copy()
+
+    services_count = 0
+    if "Service" in working_df.columns:
+        services_count = working_df["Service"].dropna().astype(str).nunique()
+
+    missing_population_count = 0
+    if "Population éligible" in working_df.columns:
+        population_values = (
+            working_df["Population éligible"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+        )
+        missing_population_count = int(
+            population_values.str.contains("manquante").sum()
+        )
+
+    non_calculable_usage_count = 0
+
+    usage_rate_column = next(
+        (
+            column
+            for column in working_df.columns
+            if "taux" in str(column).lower()
+            and "utilisation" in str(column).lower()
+        ),
+        None,
+    )
+
+    if usage_rate_column is not None:
+        usage_values = (
+            working_df[usage_rate_column]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+        )
+
+        non_calculable_usage_count = int(
+            usage_values.str.contains("non calculable", regex=False).sum()
+        )
+
+    if non_calculable_usage_count == 0 and missing_population_count > 0:
+        non_calculable_usage_count = missing_population_count
+
+    missing_mapping_count = 0
+    if "Entité / campus" in working_df.columns:
+        entity_values = (
+            working_df["Entité / campus"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+        )
+        missing_mapping_count = int(
+            entity_values.str.contains("mapping").sum()
+            + entity_values.str.contains("manquant").sum()
+        )
+
+    partial_or_incomplete_count = 0
+    if "Statut global" in working_df.columns:
+        status_values = (
+            working_df["Statut global"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+        )
+        partial_or_incomplete_count = int(
+            status_values.isin(["partiel", "à compléter"]).sum()
+        )
+
+    available_interactions_count = 0
+    if "Interactions" in working_df.columns:
+        interactions_values = (
+            working_df["Interactions"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+        )
+        available_interactions_count = int(
+            interactions_values.str.contains("disponibles").sum()
+        )
+
+    if services_count == 0:
+        service_scope = "aucun service"
+    elif services_count == 1:
+        service_scope = "un service"
+    else:
+        service_scope = f"{services_count} services"
+
+    observation = (
+        f"La section évalue la qualité des données pour {service_scope}. "
+        f"{partial_or_incomplete_count} service(s) présentent des données partielles "
+        f"ou à compléter. Le taux d'utilisation est non calculable pour "
+        f"{non_calculable_usage_count} service(s), principalement à cause de la "
+        f"population éligible manquante."
+    )
+
+    if missing_population_count > 0 and missing_mapping_count > 0:
+        interpretation = (
+            "Les données d'usage sont exploitables pour mesurer l'activité observée, "
+            "mais elles ne suffisent pas encore pour mesurer une adoption métier complète. "
+            "La population éligible manque pour calculer le taux d'utilisation réel, "
+            "et le mapping organisationnel manquant limite l'analyse par entité ou campus."
+        )
+    elif missing_population_count > 0:
+        interpretation = (
+            "Les données d'usage sont disponibles, mais le taux d'utilisation réel "
+            "reste non calculable sans population éligible par service. L'analyse mesure "
+            "donc l'usage observé, pas encore l'adoption complète."
+        )
+    elif missing_mapping_count > 0:
+        interpretation = (
+            "L'analyse globale de l'usage est possible, mais la lecture par entité ou "
+            "campus reste partielle car le mapping organisationnel est incomplet."
+        )
+    elif partial_or_incomplete_count > 0:
+        interpretation = (
+            "Certaines informations restent partielles. Les résultats doivent être lus "
+            "avec prudence avant de conclure sur le niveau réel d'adoption."
+        )
+    else:
+        interpretation = (
+            "Les principales données nécessaires semblent disponibles pour les services "
+            "affichés. L'analyse peut être exploitée plus directement, sous réserve de "
+            "validation métier des sources."
+        )
+
+    if missing_population_count > 0 and missing_mapping_count > 0:
+        recommendation = (
+            "Prioriser deux référentiels : la population éligible par service et le "
+            "mapping utilisateur vers entité, campus ou direction. Ces deux éléments "
+            "permettront de calculer un vrai taux d'adoption et de comparer les usages "
+            "entre organisations."
+        )
+    elif missing_population_count > 0:
+        recommendation = (
+            "Collecter la population éligible par service afin de transformer les KPI "
+            "d'usage observé en taux d'utilisation réel."
+        )
+    elif missing_mapping_count > 0:
+        recommendation = (
+            "Compléter le mapping utilisateur vers entité, campus ou direction afin de "
+            "fiabiliser l'analyse organisationnelle de l'adoption."
+        )
+    else:
+        recommendation = (
+            "Maintenir le contrôle qualité des données et valider les définitions des "
+            "indicateurs avec les équipes métier avant d'industrialiser les alertes."
+        )
+
+    return {
+        "observation": observation,
+        "interpretation": interpretation,
+        "recommendation": recommendation,
+    }
+
 # ── Onglets ────────────────────────────────────────────────────────────────────
 
 dashboard_tab,learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
@@ -1335,6 +1510,13 @@ with dashboard_tab:
 
     with st.container(border=True):
         st.subheader("Données manquantes / Qualité des données")
+
+        data_quality_interpretation = prepare_data_quality_interpretation(
+            unified_data_quality,
+        )
+
+        with st.popover("💡 Interprétation IA"):
+            render_interpretation_popover(data_quality_interpretation)
 
         st.caption(
             "Cette section distingue les indicateurs calculables avec les données actuelles "
