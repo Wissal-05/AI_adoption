@@ -608,6 +608,191 @@ filtered_usage = DashboardService.apply_filters(
     data.usage_events, selected_services, selected_departments
 )
 
+def prepare_evolution_interpretation(
+    trend_df: pd.DataFrame,
+    selected_service: str,
+    selected_metric_label: str,
+    selected_metric: str,
+) -> dict:
+    """Génère une interprétation contrôlée du graphique d'évolution."""
+
+    if trend_df.empty or selected_metric not in trend_df.columns:
+        return {
+            "observation": (
+                "Le graphique ne contient pas assez de données avec les filtres actuels."
+            ),
+            "interpretation": (
+                "L’absence de données peut venir d’une période trop restrictive, "
+                "d’un service non disponible ou d’un problème de source."
+            ),
+            "recommendation": (
+                "Élargir la période d’analyse ou vérifier la disponibilité des données "
+                "pour le service sélectionné."
+            ),
+        }
+
+    working_df = trend_df.copy()
+
+    if selected_service != "Tous" and "service" in working_df.columns:
+        working_df = working_df[
+            working_df["service"].astype(str) == str(selected_service)
+        ]
+
+    if working_df.empty or "date" not in working_df.columns:
+        return {
+            "observation": (
+                "Aucune tendance exploitable n’est disponible pour cette sélection."
+            ),
+            "interpretation": (
+                "Le service ou le KPI sélectionné ne contient pas suffisamment de points "
+                "pour analyser une évolution."
+            ),
+            "recommendation": (
+                "Vérifier les filtres appliqués ou choisir un autre KPI d’évolution."
+            ),
+        }
+
+    working_df["date"] = pd.to_datetime(working_df["date"], errors="coerce")
+    working_df = working_df.dropna(subset=["date", selected_metric])
+
+    if selected_metric == "frequency":
+        daily_series = (
+            working_df.groupby("date", as_index=False)[selected_metric]
+            .mean()
+            .sort_values("date")
+        )
+    else:
+        daily_series = (
+            working_df.groupby("date", as_index=False)[selected_metric]
+            .sum()
+            .sort_values("date")
+        )
+
+    if daily_series.empty:
+        return {
+            "observation": (
+                "Le graphique ne contient pas de valeur exploitable pour le KPI sélectionné."
+            ),
+            "interpretation": (
+                "Le KPI choisi est présent dans le dashboard, mais aucune valeur valide "
+                "n’est disponible sur la période filtrée."
+            ),
+            "recommendation": (
+                "Tester un autre KPI ou vérifier la qualité de la donnée source."
+            ),
+        }
+
+    current_value = float(daily_series.iloc[-1][selected_metric])
+    previous_value = None
+
+    if len(daily_series) >= 2:
+        previous_value = float(daily_series.iloc[-2][selected_metric])
+
+    start_date = daily_series["date"].min().strftime("%d/%m/%Y")
+    end_date = daily_series["date"].max().strftime("%d/%m/%Y")
+
+    def format_value(value: float) -> str:
+        if selected_metric == "frequency":
+            return f"{value:.1f}"
+        return f"{int(round(value)):,}".replace(",", " ")
+
+    if selected_service == "Tous":
+        service_scope = "l’ensemble des services sélectionnés"
+    else:
+        service_scope = f"le service {selected_service}"
+
+    observation = (
+        f"Le graphique présente l’évolution du KPI {selected_metric_label} pour "
+        f"{service_scope}, sur la période du {start_date} au {end_date}. "
+        f"La dernière valeur observée est {format_value(current_value)}."
+    )
+
+    variation_percent = None
+
+    if previous_value is not None and previous_value != 0:
+        variation_percent = ((current_value - previous_value) / previous_value) * 100
+
+    if variation_percent is None:
+        trend_sentence = (
+            "Il n’y a pas assez de points précédents pour calculer une variation fiable."
+        )
+    elif variation_percent >= 20:
+        trend_sentence = (
+            f"Le KPI est en forte hausse par rapport au point précédent "
+            f"({variation_percent:.1f} %)."
+        )
+    elif variation_percent <= -20:
+        trend_sentence = (
+            f"Le KPI est en forte baisse par rapport au point précédent "
+            f"({variation_percent:.1f} %)."
+        )
+    elif abs(variation_percent) < 5:
+        trend_sentence = (
+            f"Le KPI est relativement stable par rapport au point précédent "
+            f"({variation_percent:.1f} %)."
+        )
+    elif variation_percent > 0:
+        trend_sentence = (
+            f"Le KPI est en hausse modérée par rapport au point précédent "
+            f"({variation_percent:.1f} %)."
+        )
+    else:
+        trend_sentence = (
+            f"Le KPI est en baisse modérée par rapport au point précédent "
+            f"({variation_percent:.1f} %)."
+        )
+
+    if selected_metric == "dau":
+        metric_explanation = (
+            "Le DAU mesure l’activité quotidienne. Il est sensible aux incidents, "
+            "aux jours creux et aux variations ponctuelles de trafic."
+        )
+    elif selected_metric == "wau":
+        metric_explanation = (
+            "Le WAU donne une lecture plus stable de l’usage hebdomadaire. "
+            "Il permet d’observer la régularité d’utilisation sur plusieurs jours."
+        )
+    elif selected_metric == "mau":
+        metric_explanation = (
+            "Le MAU représente la base mensuelle active. Il est utile pour suivre "
+            "l’adoption globale, mais il ne montre pas toujours la fréquence réelle d’usage."
+        )
+    elif selected_metric == "events":
+        metric_explanation = (
+            "Le volume d’événements mesure l’intensité d’activité, mais il ne doit pas "
+            "être confondu avec le nombre d’utilisateurs actifs."
+        )
+    else:
+        metric_explanation = (
+            "La fréquence moyenne indique l’intensité d’usage par utilisateur actif. "
+            "Une valeur élevée peut refléter un usage fort ou une concentration de "
+            "l’activité sur quelques profils."
+        )
+
+    interpretation = f"{trend_sentence} {metric_explanation}"
+
+    if variation_percent is not None and variation_percent <= -20:
+        recommendation = (
+            "Analyser les dates de baisse et les corréler avec des incidents techniques, "
+            "des changements fonctionnels, des périodes creuses ou un problème de tracking."
+        )
+    elif variation_percent is not None and variation_percent >= 20:
+        recommendation = (
+            "Identifier la cause de la hausse : campagne de communication, événement métier, "
+            "nouvelle fonctionnalité ou pic de trafic. Vérifier si cette progression est durable."
+        )
+    else:
+        recommendation = (
+            "Continuer le suivi sur plusieurs périodes et comparer cette tendance avec "
+            "les autres services. Pour conclure sur l’adoption réelle, compléter la population "
+            "éligible par service."
+        )
+
+    return {
+        "observation": observation,
+        "interpretation": interpretation,
+        "recommendation": recommendation,
+    }
 
 # ── Onglets ────────────────────────────────────────────────────────────────────
 
@@ -670,13 +855,16 @@ with dashboard_tab:
     unified_trend = build_unified_adoption_trend(filtered_usage)
 
     with st.container(border=True):
-        st.subheader("Évolution de l’adoption")
-
         if unified_trend.empty:
+            st.subheader("Évolution de l’adoption")
             st.info("Aucune donnée disponible pour afficher l’évolution de l’adoption.")
         else:
             available_services = sorted(
-                unified_trend["service"].dropna().unique().tolist()
+                unified_trend["service"]
+                .dropna()
+                .astype(str)
+                .unique()
+                .tolist()
             )
 
             kpi_mapping = {
@@ -687,22 +875,40 @@ with dashboard_tab:
                 "Fréquence": "frequency",
             }
 
-            selected_service = st.session_state.get(
-                "unified_trend_service",
-                "Tous les services",
-            )
-            selected_metric = st.session_state.get(
-                "unified_trend_kpi",
-                "DAU",
+            evolution_title_col, metric_popover_col, interpretation_popover_col = st.columns(
+                [3, 1, 1],
+                vertical_alignment="center",
             )
 
-            if selected_service not in ["Tous les services", *available_services]:
-                selected_service = "Tous les services"
+            with evolution_title_col:
+                st.subheader("Évolution de l’adoption")
 
-            if selected_metric not in kpi_mapping:
-                selected_metric = "DAU"
+            with metric_popover_col:
+                with st.popover("Choisir métriques"):
+                    selected_service = st.selectbox(
+                        "Service",
+                        ["Tous les services", *available_services],
+                        key="unified_trend_service",
+                    )
 
-            selected_kpi = kpi_mapping[selected_metric]
+                    selected_metric_label = st.selectbox(
+                        "KPI",
+                        list(kpi_mapping.keys()),
+                        key="unified_trend_kpi",
+                    )
+
+            selected_kpi = kpi_mapping[selected_metric_label]
+
+            evolution_interpretation = prepare_evolution_interpretation(
+                unified_trend,
+                selected_service,
+                selected_metric_label,
+                selected_kpi,
+            )
+
+            with interpretation_popover_col:
+                with st.popover("💡 Interprétation IA"):
+                    render_interpretation_popover(evolution_interpretation)
 
             trend_to_display = unified_trend.copy()
 
@@ -734,27 +940,13 @@ with dashboard_tab:
                     tooltip=[
                         alt.Tooltip("date:T", title="Date"),
                         alt.Tooltip("service:N", title="Service"),
-                        alt.Tooltip(f"{selected_kpi}:Q", title=selected_metric),
+                        alt.Tooltip(f"{selected_kpi}:Q", title=selected_metric_label),
                     ],
                 )
                 .properties(height=360)
             )
 
             st.altair_chart(chart, use_container_width=True)
-
-            with st.popover("Choisir métriques"):
-                st.selectbox(
-                    "Service",
-                    ["Tous les services", *available_services],
-                    key="unified_trend_service",
-                )
-
-                st.selectbox(
-                    "KPI",
-                    ["DAU", "WAU", "MAU", "Événements", "Fréquence"],
-                    key="unified_trend_kpi",
-                )
-
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
     unified_entity_usage = prepare_unified_entity_usage_table(
