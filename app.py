@@ -577,7 +577,7 @@ def render_interpretation_popover(insight: dict) -> None:
     """Affiche une interprétation structurée dans un popover."""
 
     st.caption(
-        "Interprétation contrôlée basée sur les KPI calculés par le moteur Python."
+        "Interprétation générée à partir des KPI calculés et des données disponibles."
     )
 
     st.markdown("**Observation**")
@@ -1417,14 +1417,21 @@ with dashboard_tab:
     )
 
     with st.container(border=True):
-        st.subheader("Usage par entité / campus")
+        entity_title_col, entity_interpretation_col = st.columns(
+            [4, 1],
+            vertical_alignment="center",
+        )
+
+        with entity_title_col:
+            st.subheader("Usage par entité / campus")
 
         entity_usage_interpretation = prepare_entity_usage_interpretation(
             unified_entity_usage,
         )
 
-        with st.popover("💡 Interprétation IA"):
-            render_interpretation_popover(entity_usage_interpretation)
+        with entity_interpretation_col:
+            with st.popover("💡 Interprétation IA"):
+                render_interpretation_popover(entity_usage_interpretation)
 
         st.caption(
             "Table commune appliquée à tous les services. "
@@ -1467,14 +1474,21 @@ with dashboard_tab:
     )
 
     with st.container(border=True):
-        st.subheader("Top interactions")
+        top_title_col, top_interpretation_col = st.columns(
+            [4, 1],
+            vertical_alignment="center",
+        )
+
+        with top_title_col:
+            st.subheader("Top interactions")
 
         top_interactions_interpretation = prepare_top_interactions_interpretation(
             unified_top_interactions,
         )
 
-        with st.popover("💡 Interprétation IA"):
-            render_interpretation_popover(top_interactions_interpretation)
+        with top_interpretation_col:
+            with st.popover("💡 Interprétation IA"):
+                render_interpretation_popover(top_interactions_interpretation)
 
         st.caption(
             "Vue commune des pages, routes, API ou actions métier les plus fréquentes. "
@@ -1509,14 +1523,21 @@ with dashboard_tab:
     )
 
     with st.container(border=True):
-        st.subheader("Données manquantes / Qualité des données")
+        dq_title_col, dq_interpretation_col = st.columns(
+            [4, 1],
+            vertical_alignment="center",
+        )
+
+        with dq_title_col:
+            st.subheader("Données manquantes / Qualité des données")
 
         data_quality_interpretation = prepare_data_quality_interpretation(
             unified_data_quality,
         )
 
-        with st.popover("💡 Interprétation IA"):
-            render_interpretation_popover(data_quality_interpretation)
+        with dq_interpretation_col:
+            with st.popover("💡 Interprétation IA"):
+                render_interpretation_popover(data_quality_interpretation)
 
         st.caption(
             "Cette section distingue les indicateurs calculables avec les données actuelles "
