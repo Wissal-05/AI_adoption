@@ -153,7 +153,7 @@ class TestKeywordEngine:
       assert "WAU" in response
       assert "MAU" in response
 
-    def test_keyword_engine_uses_daily_kpis_for_latest_mau(sample_usage_df):
+    def test_keyword_engine_uses_daily_kpis_for_latest_mau(self, sample_usage_df):
         engine = KeywordEngine()
 
         daily_kpis = pd.DataFrame(
@@ -176,7 +176,7 @@ class TestKeywordEngine:
 
         assert "368" in answer
 
-    def test_keyword_engine_uses_learning_center_daily_kpis_with_approx_columns(sample_usage_df):
+    def test_keyword_engine_uses_learning_center_daily_kpis_with_approx_columns(self, sample_usage_df):
         engine = KeywordEngine()
 
         daily_kpis = pd.DataFrame(
@@ -198,6 +198,105 @@ class TestKeywordEngine:
         )
 
         assert "8,877" in answer or "8877" in answer
+
+        def test_detects_booking_service_for_mau_question(self):
+            usage_df = pd.DataFrame(
+                {
+                    "event_timestamp": pd.to_datetime(
+                        [
+                            "2026-07-01",
+                            "2026-07-02",
+                            "2026-07-03",
+                            "2026-07-01",
+                        ]
+                    ),
+                    "user_id": ["b1", "b2", "b3", "lc1"],
+                    "service": [
+                        "Booking",
+                        "Booking",
+                        "Booking",
+                        "Learning Center",
+                    ],
+                    "action": ["visit", "visit", "visit", "visit"],
+                }
+            )
+
+            response = self.engine.answer(
+                "Quel est le MAU de Booking ?",
+                {
+                    "usage_df": usage_df,
+                    "web_logs_df": pd.DataFrame(),
+                },
+            )
+
+            assert "MAU" in response
+            assert "3" in response
+
+        def test_detects_learning_center_service_for_mau_question(self):
+            usage_df = pd.DataFrame(
+                {
+                    "event_timestamp": pd.to_datetime(
+                        [
+                            "2026-07-01",
+                            "2026-07-02",
+                            "2026-07-03",
+                            "2026-07-04",
+                        ]
+                    ),
+                    "user_id": ["b1", "lc1", "lc2", "lc3"],
+                    "service": [
+                        "Booking",
+                        "Learning Center",
+                        "Learning Center",
+                        "Learning Center",
+                    ],
+                    "action": ["visit", "visit", "visit", "visit"],
+                }
+            )
+
+            response = self.engine.answer(
+                "Quel est le MAU du Learning Center ?",
+                {
+                    "usage_df": usage_df,
+                    "web_logs_df": pd.DataFrame(),
+                },
+            )
+
+            assert "MAU" in response
+            assert "3" in response
+
+        def test_service_filter_does_not_break_global_question(self):
+            usage_df = pd.DataFrame(
+                {
+                    "event_timestamp": pd.to_datetime(
+                        [
+                            "2026-07-01",
+                            "2026-07-02",
+                            "2026-07-03",
+                            "2026-07-04",
+                        ]
+                    ),
+                    "user_id": ["b1", "b2", "lc1", "lc2"],
+                    "service": [
+                        "Booking",
+                        "Booking",
+                        "Learning Center",
+                        "Learning Center",
+                    ],
+                    "action": ["visit", "visit", "visit", "visit"],
+                }
+            )
+
+            response = self.engine.answer(
+                "Quel est le MAU ?",
+                {
+                    "usage_df": usage_df,
+                    "web_logs_df": pd.DataFrame(),
+                },
+            )
+
+            assert "MAU" in response
+            assert "4" in response
                 
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):

@@ -123,6 +123,16 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame = context.get("web_logs_df", pd.DataFrame())
         daily_kpis_df: pd.DataFrame = context.get("daily_kpis", pd.DataFrame())
 
+        detected_service = self._detect_service(
+            normalized,
+            usage_df,
+            daily_kpis_df,
+        )
+
+        if detected_service is not None:
+            usage_df = self._filter_by_service(usage_df, detected_service)
+            daily_kpis_df = self._filter_by_service(daily_kpis_df, detected_service)
+
         intent = self._detect_intent(normalized)
 
         handlers = {
@@ -312,6 +322,66 @@ class KeywordEngine(AssistantPort):
             if any(kw in normalized_question for kw in keywords):
                 return intent
         return None
+
+    @staticmethod
+    def _detect_service(
+        normalized_question: str,
+        usage_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+    ) -> str | None:
+        """Détecte le service mentionné dans la question."""
+
+        known_services = []
+
+        for dataframe in [usage_df, daily_kpis_df]:
+            if not dataframe.empty and "service" in dataframe.columns:
+                known_services.extend(
+                    dataframe["service"]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+
+        service_aliases = {
+            "booking": ["booking", "réservation", "reservation"],
+            "learning center": [
+                "learning center",
+                "learning-center",
+                "learning_center",
+                "lc",
+            ],
+        }
+
+        for canonical_service, aliases in service_aliases.items():
+            if any(alias in normalized_question for alias in aliases):
+                for service in known_services:
+                    if service.lower() == canonical_service:
+                        return service
+
+                return canonical_service.title()
+
+        for service in known_services:
+            if service.lower() in normalized_question:
+                return service
+
+        return None
+
+    @staticmethod
+    def _filter_by_service(
+        dataframe: pd.DataFrame,
+        service: str | None,
+    ) -> pd.DataFrame:
+        """Filtre un dataframe par service si la colonne service existe."""
+
+        if service is None or dataframe.empty or "service" not in dataframe.columns:
+            return dataframe
+
+        filtered = dataframe[
+            dataframe["service"].astype(str).str.lower() == service.lower()
+        ]
+
+        return filtered
 
     @staticmethod
     def _adoption_metrics(usage_df: pd.DataFrame) -> dict:
