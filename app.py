@@ -1409,7 +1409,7 @@ with dashboard_tab:
                 .properties(height=360)
             )
 
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
     unified_entity_usage = prepare_unified_entity_usage_table(
@@ -1445,7 +1445,7 @@ with dashboard_tab:
             st.dataframe(
                 unified_entity_usage,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     "Utilisateurs actifs": st.column_config.NumberColumn(
                         "Utilisateurs actifs",
@@ -1501,7 +1501,7 @@ with dashboard_tab:
             st.dataframe(
                 unified_top_interactions,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     "Événements": st.column_config.NumberColumn(
                         "Événements",
@@ -1568,7 +1568,7 @@ with dashboard_tab:
             st.dataframe(
                 unified_data_quality,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     "Événements disponibles": st.column_config.NumberColumn(
                         "Événements disponibles",
