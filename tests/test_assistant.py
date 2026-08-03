@@ -755,6 +755,185 @@ class TestKeywordEngine:
         assert "Learning Center" in response
         assert "Service le plus élevé" in response
 
+    def test_answers_top_campus_for_booking(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "r1", "r2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                ],
+                "department": [
+                    "Benguerir",
+                    "Benguerir",
+                    "Benguerir",
+                    "Rabat",
+                    "Rabat",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel campus utilise le plus Booking ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Usage de Booking par entité/campus" in response
+        assert "Benguerir" in response
+        assert "Entité/campus le plus actif" in response
+
+    def test_compares_booking_usage_between_two_campuses(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "r1", "r2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                ],
+                "department": [
+                    "Benguerir",
+                    "Benguerir",
+                    "Benguerir",
+                    "Rabat",
+                    "Rabat",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Compare Booking entre Benguerir et Rabat",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison de l'usage de Booking par entité/campus" in response
+        assert "Benguerir" in response
+        assert "Rabat" in response
+        assert "Entité/campus le plus actif" in response
+
+    def test_answers_most_active_campuses(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "r1", "c1"],
+                "service": ["Booking", "Booking", "Booking", "Booking"],
+                "department": [
+                    "Benguerir",
+                    "Benguerir",
+                    "Rabat",
+                    "Casablanca",
+                ],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quels sont les campus les plus actifs ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Campus / entités / départements les plus actifs" in response
+        assert "Benguerir" in response
+        assert "Rabat" in response
+
+    def test_explains_missing_campus_mapping_for_learning_center(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                    ]
+                ),
+                "user_id": ["lc1", "lc2"],
+                "service": ["Learning Center", "Learning Center"],
+                "department": ["Unknown", "Unknown"],
+                "action": ["visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Pourquoi Learning Center est Non renseigné par campus ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Learning Center" in response
+        assert "mapping entité/campus" in response
+        assert "Non renseigné" in response
+
+    def test_entity_questions_do_not_break_service_comparison(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "lc1", "lc2"],
+                "service": ["Booking", "Learning Center", "Learning Center"],
+                "department": ["Benguerir", "Unknown", "Unknown"],
+                "action": ["visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Compare Booking et Learning Center",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison globale par service" in response
+        assert "Booking" in response
+        assert "Learning Center" in response
+
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):
         from adoption_analytics.ai import get_assistant

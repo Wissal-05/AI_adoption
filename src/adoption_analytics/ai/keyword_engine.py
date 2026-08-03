@@ -125,6 +125,13 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame = context.get("web_logs_df", pd.DataFrame())
         daily_kpis_df: pd.DataFrame = context.get("daily_kpis", pd.DataFrame())
 
+        if self._is_entity_usage_question(normalized, usage_df):
+            return self._handle_entity_usage_question(
+                usage_df,
+                daily_kpis_df,
+                normalized,
+            )
+
         comparison_intent = self._is_comparison_question(normalized)
 
         if comparison_intent:
@@ -426,12 +433,318 @@ class KeywordEngine(AssistantPort):
             "de l'usage observé."
         )
 
+    def _handle_entity_usage_question(  
+        self,
+        usage_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+        normalized_question: str,
+    ) -> str:
+        """Répond aux questions sur l'usage par entité/campus."""
+
+        entity_column = self._entity_column(usage_df)
+
+        if entity_column is None:
+            return (
+                "Les données actuelles ne contiennent pas de colonne exploitable "
+                "pour l'entité, le campus ou le département. Il faut ajouter un mapping "
+                "utilisateur → entité/campus/direction pour répondre à cette question."
+            )
+
+        detected_service = self._detect_service(
+            normalized_question,
+            usage_df,
+            daily_kpis_df,
+        )
+
+        scoped_usage_df = usage_df
+
+        if detected_service is not None:
+            scoped_usage_df = self._filter_by_service(
+                usage_df,
+                detected_service,
+            )
+
+        if scoped_usage_df.empty:
+            if detected_service is not None:
+                return (
+                    f"Aucune donnée d'usage n'est disponible pour le service "
+                    f"{detected_service} avec les filtres actuels."
+                )
+
+            return "Aucune donnée d'usage n'est disponible avec les filtres actuels."
+
+        summary = self._entity_usage_summary(scoped_usage_df)
+
+        if summary.empty:
+            return (
+                "Aucune donnée suffisante n'est disponible pour analyser l'usage "
+                "par entité/campus."
+            )
+
+        usable_summary = summary[summary["entity"] != "Non renseigné"]
+
+        if usable_summary.empty:
+            if detected_service is not None:
+                return (
+                    f"Le service {detected_service} ne dispose pas actuellement "
+                    "d'un mapping entité/campus exploitable. Les usages sont donc "
+                    "classés comme Non renseigné. Pour analyser l'adoption par campus, "
+                    "il faut ajouter un mapping utilisateur → entité/campus/direction."
+                )
+
+            return (
+                "Les données actuelles ne disposent pas d'un mapping entité/campus "
+                "exploitable. Les usages sont donc classés comme Non renseigné."
+            )
+
+        mentioned_entities = self._mentioned_entities(
+            normalized_question,
+            scoped_usage_df,
+        )
+
+        if len(mentioned_entities) >= 2:
+            compared = usable_summary[
+                usable_summary["entity"].isin(mentioned_entities)
+            ]
+
+            if compared.empty:
+                return (
+                    "Les entités mentionnées ne sont pas disponibles dans les données "
+                    "filtrées actuelles."
+                )
+
+            lines = []
+
+            if detected_service is not None:
+                lines.append(
+                    f"**Comparaison de l'usage de {detected_service} par entité/campus :**"
+                )
+            else:
+                lines.append("**Comparaison de l'usage par entité/campus :**")
+
+            for _, row in compared.iterrows():
+                lines.append(
+                    f"- {row['entity']} : "
+                    f"{int(row['active_users'])} utilisateurs actifs, "
+                    f"{int(row['events'])} événements, "
+                    f"{row['events_per_user']:.2f} événements/utilisateur"
+                )
+
+            leader = compared.sort_values(
+                ["active_users", "events"],
+                ascending=False,
+            ).iloc[0]
+
+            lines.append("")
+            lines.append(
+                f"**Entité/campus le plus actif :** {leader['entity']} "
+                f"avec {int(leader['active_users'])} utilisateurs actifs."
+            )
+
+            return "\n".join(lines)
+
+        top_rows = usable_summary.head(5)
+
+        if detected_service is not None:
+            intro = f"**Usage de {detected_service} par entité/campus :**"
+        else:
+            intro = "**Campus / entités / départements les plus actifs :**"
+
+        lines = [intro]
+
+        for _, row in top_rows.iterrows():
+            lines.append(
+                f"- {row['entity']} : "
+                f"{int(row['active_users'])} utilisateurs actifs, "
+                f"{int(row['events'])} événements, "
+                f"{row['events_per_user']:.2f} événements/utilisateur"
+            )
+
+        leader = top_rows.iloc[0]
+
+        lines.append("")
+        lines.append(
+            f"**Entité/campus le plus actif :** {leader['entity']} "
+            f"avec {int(leader['active_users'])} utilisateurs actifs."
+        )
+
+        if detected_service is None:
+            lines.append(
+                "Cette comparaison agrège les services disponibles dans les données filtrées."
+            )
+        else:
+            lines.append(
+                "Cette lecture mesure l'usage observé par campus. Pour conclure sur "
+                "l'adoption réelle, il faut comparer ces résultats à la population "
+                "éligible de chaque campus."
+            )
+
+        return "\n".join(lines)
+
     def _detect_intent(self, normalized_question: str) -> str | None:
         """Détecte l'intention à partir des mots-clés de la question."""
         for intent, keywords in self._INTENT_KEYWORDS.items():
             if any(kw in normalized_question for kw in keywords):
                 return intent
         return None
+
+    @staticmethod
+    def _entity_column(usage_df: pd.DataFrame) -> str | None:
+        """Retourne la colonne représentant l'entité, le campus ou le département."""
+
+        candidates = [
+            "entity",
+            "entite",
+            "entité",
+            "entity_campus",
+            "entite_campus",
+            "campus",
+            "department",
+            "departement",
+            "département",
+            "direction",
+            "site",
+        ]
+
+        for candidate in candidates:
+            if candidate in usage_df.columns:
+                return candidate
+
+        return None
+
+    @staticmethod
+    def _entity_display_value(value) -> str:
+        """Formate une valeur d'entité/campus pour l'affichage."""
+
+        if pd.isna(value):
+            return "Non renseigné"
+
+        text = str(value).strip()
+
+        if text.lower() in {
+            "",
+            "nan",
+            "none",
+            "null",
+            "unknown",
+            "non renseigné",
+            "non renseigne",
+        }:
+            return "Non renseigné"
+
+        return text
+
+    @staticmethod
+    def _is_missing_entity_value(value) -> bool:
+        """Indique si une valeur d'entité/campus est manquante."""
+
+        return KeywordEngine._entity_display_value(value) == "Non renseigné"
+
+    def _is_entity_usage_question(
+        self,
+        normalized_question: str,
+        usage_df: pd.DataFrame,
+    ) -> bool:
+        """Détecte si la question porte sur l'usage par entité/campus."""
+
+        entity_keywords = [
+            "campus",
+            "entité",
+            "entite",
+            "département",
+            "departement",
+            "direction",
+            "site",
+        ]
+
+        if any(keyword in normalized_question for keyword in entity_keywords):
+            return True
+
+        entity_column = self._entity_column(usage_df)
+
+        if entity_column is None or usage_df.empty:
+            return False
+
+        known_entities = (
+            usage_df[entity_column]
+            .dropna()
+            .map(self._entity_display_value)
+            .unique()
+            .tolist()
+        )
+
+        mentioned_entities = [
+            entity
+            for entity in known_entities
+            if entity != "Non renseigné" and entity.lower() in normalized_question
+        ]
+
+        return len(mentioned_entities) >= 1
+
+    def _mentioned_entities(
+        self,
+        normalized_question: str,
+        usage_df: pd.DataFrame,
+    ) -> list[str]:
+        """Retourne les entités/campus mentionnés dans la question."""
+
+        entity_column = self._entity_column(usage_df)
+
+        if entity_column is None or usage_df.empty:
+            return []
+
+        known_entities = (
+            usage_df[entity_column]
+            .dropna()
+            .map(self._entity_display_value)
+            .unique()
+            .tolist()
+        )
+
+        return [
+            entity
+            for entity in known_entities
+            if entity != "Non renseigné" and entity.lower() in normalized_question
+        ]
+
+    def _entity_usage_summary(
+        self,
+        usage_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Calcule un résumé d'usage par entité/campus."""
+
+        entity_column = self._entity_column(usage_df)
+
+        if entity_column is None or usage_df.empty:
+            return pd.DataFrame()
+
+        working_df = usage_df.copy()
+        working_df["_entity_display"] = working_df[entity_column].map(
+            self._entity_display_value,
+        )
+
+        group = working_df.groupby("_entity_display", dropna=False)
+
+        summary = group.agg(
+            events=("event_timestamp", "count"),
+            active_users=("user_id", "nunique"),
+        ).reset_index()
+
+        summary = summary.rename(columns={"_entity_display": "entity"})
+
+        summary["events_per_user"] = summary.apply(
+            lambda row: row["events"] / row["active_users"]
+            if row["active_users"] > 0
+            else 0,
+            axis=1,
+        )
+
+        summary = summary.sort_values(
+            ["active_users", "events"],
+            ascending=False,
+        )
+
+        return summary
 
     @staticmethod
     def _detect_service(
