@@ -598,6 +598,80 @@ def render_interpretation_popover(insight: dict) -> None:
     st.markdown("**Recommandation**")
     st.write(insight["recommendation"])
 
+def prepare_advanced_kpis_interpretation(
+    advanced_kpis: dict,
+    metrics: dict,
+) -> dict:
+    """Prépare une interprétation des KPI avancés d'adoption."""
+
+    stickiness = advanced_kpis.get("stickiness_dau_mau")
+    weekly_recurrence = advanced_kpis.get("weekly_recurrence_wau_mau")
+
+    if stickiness is None or weekly_recurrence is None:
+        return {
+            "observation": (
+                "Les indicateurs avancés de récurrence ne sont pas calculables "
+                "avec les données actuellement disponibles."
+            ),
+            "interpretation": (
+                "Le calcul nécessite au minimum les KPI DAU, WAU et MAU. "
+                "Si le MAU est nul ou absent, les ratios DAU/MAU et WAU/MAU "
+                "ne peuvent pas être interprétés correctement."
+            ),
+            "recommendation": (
+                "Vérifier la disponibilité des KPI de base et la qualité des "
+                "données d'activité avant d'analyser la récurrence d'usage."
+            ),
+        }
+
+    dau = metrics.get("dau", 0)
+    wau = metrics.get("wau", 0)
+    mau = metrics.get("mau", 0)
+
+    if stickiness < 5:
+        stickiness_level = "faible"
+        stickiness_interpretation = (
+            "Une faible part des utilisateurs mensuels revient quotidiennement. "
+            "L'usage semble donc ponctuel ou concentré sur certains besoins."
+        )
+    elif stickiness < 20:
+        stickiness_level = "modérée"
+        stickiness_interpretation = (
+            "Une part limitée mais significative des utilisateurs mensuels revient "
+            "quotidiennement. L'usage montre une certaine régularité."
+        )
+    else:
+        stickiness_level = "élevée"
+        stickiness_interpretation = (
+            "Une part importante des utilisateurs mensuels revient quotidiennement. "
+            "Le service semble fortement intégré aux usages réguliers."
+        )
+
+    if weekly_recurrence < 20:
+        recurrence_level = "faible"
+    elif weekly_recurrence < 60:
+        recurrence_level = "modérée"
+    else:
+        recurrence_level = "élevée"
+
+    return {
+        "observation": (
+            f"Les KPI observés sont DAU={dau}, WAU={wau}, MAU={mau}. "
+            f"Le stickiness DAU/MAU est de {stickiness:.1f} % et la "
+            f"récurrence WAU/MAU est de {weekly_recurrence:.1f} %."
+        ),
+        "interpretation": (
+            f"La récurrence quotidienne est {stickiness_level}. "
+            f"La récurrence hebdomadaire est {recurrence_level}. "
+            f"{stickiness_interpretation}"
+        ),
+        "recommendation": (
+            "Comparer ces ratios entre services et suivre leur évolution dans le temps. "
+            "Pour conclure sur l'adoption réelle, il reste nécessaire de disposer de la "
+            "population éligible par service."
+        ),
+    }
+
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
 if st.sidebar.button("Rafraîchir les données"):
     load_data.clear()
@@ -1321,7 +1395,18 @@ with dashboard_tab:
         dashboard_adoption_vm.metrics,
     )
 
-    st.caption("Indicateurs dérivés de récurrence")
+    advanced_kpi_insight = prepare_advanced_kpis_interpretation(
+        advanced_kpis,
+        dashboard_adoption_vm.metrics,
+    )
+
+    advanced_title_col, advanced_insight_col = st.columns([4, 1])
+
+    with advanced_title_col:
+        st.caption("Indicateurs dérivés de récurrence")
+
+    with advanced_insight_col:
+        render_interpretation_popover(advanced_kpi_insight)
 
     with st.container(horizontal=True):
         st.metric(
