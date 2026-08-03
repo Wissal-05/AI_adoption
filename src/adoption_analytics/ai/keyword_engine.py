@@ -123,6 +123,15 @@ class KeywordEngine(AssistantPort):
         web_logs_df: pd.DataFrame = context.get("web_logs_df", pd.DataFrame())
         daily_kpis_df: pd.DataFrame = context.get("daily_kpis", pd.DataFrame())
 
+        comparison_intent = self._is_comparison_question(normalized)
+
+        if comparison_intent:
+            return self._handle_service_comparison(
+                usage_df,
+                daily_kpis_df,
+                normalized,
+            )
+
         detected_service = self._detect_service(
             normalized,
             usage_df,
@@ -485,6 +494,203 @@ class KeywordEngine(AssistantPort):
                 return response.replace(source, target, 1)
 
         return response
+
+    @staticmethod
+    def _is_comparison_question(normalized_question: str) -> bool:
+        """Détecte si la question demande une comparaison entre services."""
+
+        comparison_keywords = [
+            "compare",
+            "comparaison",
+            "comparer",
+            "versus",
+            " vs ",
+            "entre",
+            "le plus",
+            "la plus",
+            "plus de",
+            "plus grand",
+            "plus grande",
+            "meilleur",
+            "meilleure",
+        ]
+
+        return any(keyword in normalized_question for keyword in comparison_keywords)
+    
+    @staticmethod
+    def _detect_comparison_metric(normalized_question: str) -> str | None:
+        """Détecte le KPI à comparer dans une question."""
+
+        if "dau" in normalized_question or "quotidien" in normalized_question:
+            return "dau"
+
+        if "wau" in normalized_question or "hebdomadaire" in normalized_question:
+            return "wau"
+
+        if "mau" in normalized_question or "mensuel" in normalized_question:
+            return "mau"
+
+        if (
+            "fréquence" in normalized_question
+            or "frequence" in normalized_question
+            or "frequency" in normalized_question
+            or "événements par utilisateur" in normalized_question
+            or "evenements par utilisateur" in normalized_question
+        ):
+            return "frequency"
+
+        return None
+
+    @staticmethod
+    def _compute_metrics_by_service(
+        usage_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+    ) -> dict[str, dict]:
+        """Calcule les KPI par service pour les comparaisons."""
+
+        results: dict[str, dict] = {}
+
+        if usage_df.empty or "service" not in usage_df.columns:
+            return results
+
+        services = sorted(
+            usage_df["service"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+
+        for service in services:
+            service_usage = usage_df[
+                usage_df["service"].astype(str).str.lower() == service.lower()
+            ]
+
+            service_daily_kpis = pd.DataFrame()
+
+            if not daily_kpis_df.empty and "service" in daily_kpis_df.columns:
+                service_daily_kpis = daily_kpis_df[
+                    daily_kpis_df["service"].astype(str).str.lower() == service.lower()
+                ]
+
+            latest = KeywordEngine._latest_daily_kpis(service_daily_kpis)
+
+            if latest is not None:
+                metrics = {
+                    "dau": latest["dau"],
+                    "wau": latest["wau"],
+                    "mau": latest["mau"],
+                }
+            else:
+                metrics = KeywordEngine._adoption_metrics(service_usage)
+
+            frequency = compute_usage_frequency(service_usage)
+
+            metrics["frequency"] = frequency["avg_events_per_active_user"]
+            metrics["active_users"] = frequency["active_users"]
+            metrics["total_events"] = frequency["total_events"]
+
+            results[service] = metrics
+
+        return results
+
+    @staticmethod
+    def _format_metric_value(metric: str, value: float | int) -> str:
+        """Formate une valeur de KPI."""
+
+        if metric == "frequency":
+            return f"{float(value):.2f}"
+
+        return f"{int(round(value)):,}"
+
+    def _handle_service_comparison(
+        self,
+        usage_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+        normalized_question: str,
+    ) -> str:
+        """Répond aux questions de comparaison entre services."""
+
+        metrics_by_service = self._compute_metrics_by_service(
+            usage_df,
+            daily_kpis_df,
+        )
+
+        if not metrics_by_service:
+            return (
+                "Aucune donnée suffisante n’est disponible pour comparer les services."
+            )
+
+        selected_metric = self._detect_comparison_metric(normalized_question)
+
+        metric_labels = {
+            "dau": "DAU",
+            "wau": "WAU",
+            "mau": "MAU",
+            "frequency": "fréquence moyenne",
+        }
+
+        if selected_metric is not None:
+            label = metric_labels[selected_metric]
+
+            rows = []
+            for service, metrics in metrics_by_service.items():
+                value = metrics.get(selected_metric, 0)
+                rows.append((service, value))
+
+            rows = sorted(rows, key=lambda item: item[1], reverse=True)
+
+            leader_service, leader_value = rows[0]
+
+            lines = [
+                f"**Comparaison {label} par service :**",
+            ]
+
+            for service, value in rows:
+                lines.append(
+                    f"- {service} : {self._format_metric_value(selected_metric, value)}"
+                )
+
+            lines.append("")
+            lines.append(
+                f"**Service le plus élevé :** {leader_service} "
+                f"avec {self._format_metric_value(selected_metric, leader_value)}."
+            )
+
+            if selected_metric == "frequency":
+                lines.append(
+                    "La fréquence moyenne mesure l’intensité d’usage par utilisateur actif. "
+                    "Une valeur élevée peut indiquer un usage fort ou une activité concentrée "
+                    "sur certains profils."
+                )
+            else:
+                lines.append(
+                    "Cette comparaison mesure l’usage observé. Pour conclure sur l’adoption réelle, "
+                    "il faut comparer ces résultats à la population éligible de chaque service."
+                )
+
+            return "\n".join(lines)
+
+        lines = [
+            "**Comparaison globale par service :**",
+        ]
+
+        for service, metrics in metrics_by_service.items():
+            lines.append(
+                f"- {service} : "
+                f"DAU={self._format_metric_value('dau', metrics.get('dau', 0))}, "
+                f"WAU={self._format_metric_value('wau', metrics.get('wau', 0))}, "
+                f"MAU={self._format_metric_value('mau', metrics.get('mau', 0))}, "
+                f"fréquence={self._format_metric_value('frequency', metrics.get('frequency', 0))}"
+            )
+
+        lines.append("")
+        lines.append(
+            "Cette comparaison donne une lecture multi-services de l’usage observé. "
+            "Le taux d’utilisation réel reste non calculable sans population éligible par service."
+        )
+
+        return "\n".join(lines)
 
     @staticmethod
     def _default_response() -> str:

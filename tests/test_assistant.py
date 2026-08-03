@@ -411,6 +411,166 @@ class TestKeywordEngine:
         assert "DAU de Booking" in response
         assert "999" not in response
 
+    def test_compares_dau_between_services(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-23",
+                        "2026-07-23",
+                        "2026-07-23",
+                        "2026-07-23",
+                        "2026-07-23",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Compare le DAU entre Booking et Learning Center",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison DAU" in response
+        assert "Booking" in response
+        assert "Learning Center" in response
+        assert "Service le plus élevé" in response
+
+
+    def test_compares_mau_between_services(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "lc1"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel service a le plus de MAU ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison MAU" in response
+        assert "Booking" in response
+        assert "Learning Center" in response
+        assert "Service le plus élevé" in response
+
+
+    def test_compares_frequency_between_services(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "b1", "b1", "lc1", "lc2", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "click", "update", "visit", "visit", "click"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel service a la plus grande fréquence d’utilisation ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "fréquence moyenne" in response.lower()
+        assert "Booking" in response
+        assert "Learning Center" in response
+        assert "Service le plus élevé" in response
+
+
+    def test_global_comparison_without_specific_kpi(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-01",
+                        "2026-07-02",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Compare Booking et Learning Center",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison globale" in response
+        assert "DAU" in response
+        assert "WAU" in response
+        assert "MAU" in response
+        assert "fréquence" in response.lower()
+
+    def test_detects_comparison_question(self):
+        assert self.engine._is_comparison_question(
+            "compare booking et learning center"
+        )
+        assert self.engine._is_comparison_question(
+            "quel service a le plus de mau ?"
+        )
+
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):
         from adoption_analytics.ai import get_assistant
