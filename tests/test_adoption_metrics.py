@@ -241,3 +241,42 @@ def test_departmental_breakdown_with_missing_columns():
     )
 
     assert result.empty
+
+
+def test_compute_advanced_adoption_kpis():
+    from adoption_analytics.metrics.adoption import compute_advanced_adoption_kpis
+
+    result = compute_advanced_adoption_kpis(
+        {
+            "dau": 10,
+            "wau": 50,
+            "mau": 100,
+        }
+    )
+
+    assert result["stickiness_dau_mau"] == 10.0
+    assert result["weekly_recurrence_wau_mau"] == 50.0
+
+
+def test_compute_advanced_adoption_kpis_handles_zero_mau():
+    from adoption_analytics.metrics.adoption import compute_advanced_adoption_kpis
+
+    result = compute_advanced_adoption_kpis(
+        {
+            "dau": 10,
+            "wau": 50,
+            "mau": 0,
+        }
+    )
+
+    assert result["stickiness_dau_mau"] is None
+    assert result["weekly_recurrence_wau_mau"] is None
+
+
+def test_compute_advanced_adoption_kpis_handles_missing_values():
+    from adoption_analytics.metrics.adoption import compute_advanced_adoption_kpis
+
+    result = compute_advanced_adoption_kpis({})
+
+    assert result["stickiness_dau_mau"] is None
+    assert result["weekly_recurrence_wau_mau"] is None

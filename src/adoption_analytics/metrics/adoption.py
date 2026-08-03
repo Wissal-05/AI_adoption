@@ -232,3 +232,31 @@ def compute_usage_frequency(
         "avg_events_per_active_user": round(len(data) / active_users, 2),
         "avg_active_days_per_user": round(active_days_per_user / active_users, 2),
     }
+
+
+def compute_advanced_adoption_kpis(metrics: dict) -> dict:
+    """Calcule des KPI avancés d'adoption à partir des KPI de base.
+
+    Les KPI attendus dans metrics sont :
+    - dau
+    - wau
+    - mau
+
+    Les valeurs retournées sont exprimées en pourcentage.
+    """
+
+    dau = float(metrics.get("dau", 0) or 0)
+    wau = float(metrics.get("wau", 0) or 0)
+    mau = float(metrics.get("mau", 0) or 0)
+
+    if mau <= 0:
+        stickiness = None
+        weekly_recurrence = None
+    else:
+        stickiness = (dau / mau) * 100
+        weekly_recurrence = (wau / mau) * 100
+
+    return {
+        "stickiness_dau_mau": stickiness,
+        "weekly_recurrence_wau_mau": weekly_recurrence,
+    }
