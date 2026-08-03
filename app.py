@@ -27,6 +27,7 @@ from adoption_analytics.metrics.learning_center import prepare_daily_trend
 from adoption_analytics.metrics.adoption import (
     compute_usage_frequency,
     departmental_breakdown,
+    compute_advanced_adoption_kpis,
 )
 
 
@@ -45,6 +46,14 @@ def load_data():
 
 
 dashboard_service, data = load_data()
+
+def format_optional_percentage(value: float | None) -> str:
+    """Formate un pourcentage optionnel pour l'affichage Streamlit."""
+
+    if value is None:
+        return "Non calculable"
+
+    return f"{value:.1f} %"
 
 def build_unified_adoption_trend(usage_df: pd.DataFrame) -> pd.DataFrame:
     """Construit une tendance quotidienne commune DAU / WAU / MAU / événements / fréquence par service."""
@@ -1305,6 +1314,29 @@ with dashboard_tab:
         st.metric(
             "Fréquence moyenne",
             f"{dashboard_adoption_vm.metrics['avg_events_per_active_user']:.1f}",
+            border=True,
+        )
+
+    advanced_kpis = compute_advanced_adoption_kpis(
+        dashboard_adoption_vm.metrics,
+    )
+
+    st.caption("Indicateurs dérivés de récurrence")
+
+    with st.container(horizontal=True):
+        st.metric(
+            "Stickiness DAU/MAU",
+            format_optional_percentage(
+                advanced_kpis["stickiness_dau_mau"],
+            ),
+            border=True,
+        )
+
+        st.metric(
+            "Récurrence WAU/MAU",
+            format_optional_percentage(
+                advanced_kpis["weekly_recurrence_wau_mau"],
+            ),
             border=True,
         )
 
