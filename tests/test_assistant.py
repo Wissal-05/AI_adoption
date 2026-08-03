@@ -199,105 +199,218 @@ class TestKeywordEngine:
 
         assert "8,877" in answer or "8877" in answer
 
-        def test_detects_booking_service_for_mau_question(self):
-            usage_df = pd.DataFrame(
-                {
-                    "event_timestamp": pd.to_datetime(
-                        [
-                            "2026-07-01",
-                            "2026-07-02",
-                            "2026-07-03",
-                            "2026-07-01",
-                        ]
-                    ),
-                    "user_id": ["b1", "b2", "b3", "lc1"],
-                    "service": [
-                        "Booking",
-                        "Booking",
-                        "Booking",
-                        "Learning Center",
-                    ],
-                    "action": ["visit", "visit", "visit", "visit"],
-                }
-            )
+    def test_detects_booking_service_for_mau_question(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                     [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-01",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "lc1"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
 
-            response = self.engine.answer(
-                "Quel est le MAU de Booking ?",
-                {
-                    "usage_df": usage_df,
-                    "web_logs_df": pd.DataFrame(),
-                },
-            )
+        response = self.engine.answer(
+            "Quel est le MAU de Booking ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
 
-            assert "MAU" in response
-            assert "3" in response
+        assert "MAU" in response
+        assert "3" in response
 
-        def test_detects_learning_center_service_for_mau_question(self):
-            usage_df = pd.DataFrame(
-                {
-                    "event_timestamp": pd.to_datetime(
-                        [
-                            "2026-07-01",
-                            "2026-07-02",
-                            "2026-07-03",
-                            "2026-07-04",
-                        ]
-                    ),
-                    "user_id": ["b1", "lc1", "lc2", "lc3"],
-                    "service": [
-                        "Booking",
-                        "Learning Center",
-                        "Learning Center",
-                        "Learning Center",
-                    ],
-                    "action": ["visit", "visit", "visit", "visit"],
-                }
-            )
+    def test_detects_learning_center_service_for_mau_question(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-04",
+                    ]
+                ),
+                "user_id": ["b1", "lc1", "lc2", "lc3"],
+                "service": [
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
 
-            response = self.engine.answer(
-                "Quel est le MAU du Learning Center ?",
-                {
-                    "usage_df": usage_df,
-                    "web_logs_df": pd.DataFrame(),
-                },
-            )
+        response = self.engine.answer(
+            "Quel est le MAU du Learning Center ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
 
-            assert "MAU" in response
-            assert "3" in response
+        assert "MAU" in response
+        assert "3" in response
 
-        def test_service_filter_does_not_break_global_question(self):
-            usage_df = pd.DataFrame(
-                {
-                    "event_timestamp": pd.to_datetime(
-                        [
-                            "2026-07-01",
-                            "2026-07-02",
-                            "2026-07-03",
-                            "2026-07-04",
-                        ]
-                    ),
-                    "user_id": ["b1", "b2", "lc1", "lc2"],
-                    "service": [
-                        "Booking",
-                        "Booking",
-                        "Learning Center",
-                        "Learning Center",
-                    ],
-                    "action": ["visit", "visit", "visit", "visit"],
-                }
-            )
+    def test_service_filter_does_not_break_global_question(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-04",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
 
-            response = self.engine.answer(
-                "Quel est le MAU ?",
-                {
-                    "usage_df": usage_df,
-                    "web_logs_df": pd.DataFrame(),
-                },
-            )
+        response = self.engine.answer(
+            "Quel est le MAU ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
 
-            assert "MAU" in response
-            assert "4" in response
-                
+        assert "MAU" in response
+        assert "4" in response
+
+    def test_service_name_is_displayed_for_booking_mau(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    ["2026-07-01", "2026-07-02", "2026-07-03"]
+                ),
+                "user_id": ["b1", "b2", "b3"],
+                "service": ["Booking", "Booking", "Booking"],
+                "action": ["visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel est le MAU de Booking ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "MAU de Booking" in response
+
+
+    def test_service_name_is_displayed_for_learning_center_dau(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    ["2026-07-01", "2026-07-02", "2026-07-03"]
+                ),
+                "user_id": ["lc1", "lc2", "lc3"],
+                "service": ["Learning Center", "Learning Center", "Learning Center"],
+                "action": ["visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel est le DAU du Learning Center ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "DAU de Learning Center" in response or "DAU du Learning Center" in response
+
+
+    def test_global_mau_response_does_not_add_service_name(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    ["2026-07-01", "2026-07-02", "2026-07-03"]
+                ),
+                "user_id": ["u1", "u2", "u3"],
+                "service": ["Booking", "Booking", "Learning Center"],
+                "action": ["visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel est le MAU ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "MAU :" in response
+        assert "MAU de Booking" not in response
+        assert "MAU de Learning Center" not in response
+
+    def test_service_specific_dau_ignores_unscoped_daily_kpis(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-23",
+                        "2026-07-23",
+                        "2026-07-23",
+                        "2026-07-23",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
+
+        daily_kpis = pd.DataFrame(
+            {
+                "date": ["2026-07-23"],
+                "dau": [999],
+                "wau": [999],
+                "mau": [999],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel est le DAU de Booking ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+                "daily_kpis": daily_kpis,
+            },
+        )
+
+        assert "DAU de Booking" in response
+        assert "999" not in response
+
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):
         from adoption_analytics.ai import get_assistant

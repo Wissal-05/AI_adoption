@@ -131,7 +131,14 @@ class KeywordEngine(AssistantPort):
 
         if detected_service is not None:
             usage_df = self._filter_by_service(usage_df, detected_service)
-            daily_kpis_df = self._filter_by_service(daily_kpis_df, detected_service)
+
+            if "service" in daily_kpis_df.columns:
+                daily_kpis_df = self._filter_by_service(
+                    daily_kpis_df,
+                    detected_service,
+                )
+            else:
+                daily_kpis_df = pd.DataFrame()
 
         intent = self._detect_intent(normalized)
 
@@ -152,7 +159,12 @@ class KeywordEngine(AssistantPort):
         handler = handlers.get(intent)
 
         if handler is not None:
-            return handler(usage_df, web_logs_df, daily_kpis_df)
+            response = handler(usage_df, web_logs_df, daily_kpis_df)
+            return self._add_service_context_to_response(
+                response,
+                detected_service,
+                intent,
+            )
        
         return self._default_response()
 
@@ -430,6 +442,49 @@ class KeywordEngine(AssistantPort):
             "mau": int(last[metric_columns["mau"]]),
             "date": last["date"].date(),
         }
+
+    @staticmethod
+    def _add_service_context_to_response(
+        response: str,
+        detected_service: str | None,
+        intent: str | None,
+    ) -> str:
+        """Ajoute le nom du service dans la réponse lorsque la question cible un service."""
+
+        if detected_service is None or intent is None:
+            return response
+
+        service_label = detected_service
+
+        replacements = {
+            "mau": {
+                "**MAU :**": f"**MAU de {service_label} :**",
+            },
+            "dau": {
+                "**DAU :**": f"**DAU de {service_label} :**",
+            },
+            "wau": {
+                "**WAU :**": f"**WAU de {service_label} :**",
+            },
+            "frequency": {
+                "**Fréquence d’utilisation :**": (
+                    f"**Fréquence d’utilisation de {service_label} :**"
+                ),
+                "**FrÃ©quence dâ€™utilisation :**": (
+                    f"**Fréquence d’utilisation de {service_label} :**"
+                ),
+            },
+            "adoption_summary": {
+                "**KPI d’adoption :**": f"**KPI d’adoption de {service_label} :**",
+                "**KPI dâ€™adoption :**": f"**KPI d’adoption de {service_label} :**",
+            },
+        }
+
+        for source, target in replacements.get(intent, {}).items():
+            if source in response:
+                return response.replace(source, target, 1)
+
+        return response
 
     @staticmethod
     def _default_response() -> str:
