@@ -17,6 +17,7 @@ from adoption_analytics.metrics.adoption import (
     departmental_breakdown,
     find_underused_services,
     inactive_users,
+    compute_advanced_adoption_kpis,
 )
 from adoption_analytics.metrics.learning_center import prepare_daily_trend
 from adoption_analytics.metrics.security import detect_suspicious_routes
@@ -36,12 +37,14 @@ class KeywordEngine(AssistantPort):
 
     # Mapping intention → mots-clés de détection
     _INTENT_KEYWORDS: dict[str, list[str]] = {
+        "stickiness": ["stickiness", "dau/mau", "dau mau", "dau sur mau", "récurrence quotidienne", "recurrence quotidienne"],
+        "weekly_recurrence": ["wau/mau", "wau mau", "wau sur mau", "récurrence hebdomadaire", "recurrence hebdomadaire"],
         "mau": [
-                    "mau",
-                    "monthly active users",
-                    "utilisateurs actifs mensuels",
-                    "utilisateur actif mensuel",
-                ],
+            "mau",
+            "monthly active users",
+            "utilisateurs actifs mensuels",
+            "utilisateur actif mensuel",
+        ],
         "dau": [
             "dau",
             "daily active users",
@@ -69,7 +72,7 @@ class KeywordEngine(AssistantPort):
             "30 jours",
             "dernier mois",
         ],
-                "frequency": [
+        "frequency": [
             "fréquence",
             "frequence",
             "frequency",
@@ -104,7 +107,6 @@ class KeywordEngine(AssistantPort):
         ],
         "inactive": ["inactif", "inactive", "absent", "dormant", "plus actif"],
         "security": ["attaque", "malicious", "suspicious", "sécurité", "security", "route suspecte", "intrusion", "suspecte"],
-        
     }
     
 
@@ -163,6 +165,8 @@ class KeywordEngine(AssistantPort):
             "department": self._handle_department,
             "inactive": self._handle_inactive,
             "security": self._handle_security,
+            "stickiness": self._handle_stickiness,
+            "weekly_recurrence": self._handle_weekly_recurrence,
         }
 
         handler = handlers.get(intent)
@@ -337,6 +341,91 @@ class KeywordEngine(AssistantPort):
         result = detect_suspicious_routes(web_logs_df).head(10)
         return self._format_records("Routes suspectes détectées", result)
 
+    @staticmethod
+    def _base_metrics_for_advanced_kpis(
+        usage_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+    ) -> dict:
+        """Retourne les KPI de base nécessaires aux KPI avancés."""
+
+        latest = KeywordEngine._latest_daily_kpis(daily_kpis_df)
+
+        if latest is not None:
+            return {
+                "dau": latest["dau"],
+                "wau": latest["wau"],
+                "mau": latest["mau"],
+            }
+
+        return KeywordEngine._adoption_metrics(usage_df)
+
+    @staticmethod
+    def _format_optional_percentage(value: float | None) -> str:
+        """Formate un pourcentage optionnel."""
+
+        if value is None:
+            return "Non calculable"
+
+        return f"{value:.1f} %"
+
+    def _handle_stickiness(
+        self,
+        usage_df: pd.DataFrame,
+        web_logs_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+    ) -> str:
+        """Répond aux questions sur le stickiness DAU/MAU."""
+
+        base_metrics = self._base_metrics_for_advanced_kpis(
+            usage_df,
+            daily_kpis_df,
+        )
+        advanced_kpis = compute_advanced_adoption_kpis(base_metrics)
+        value = advanced_kpis["stickiness_dau_mau"]
+
+        if value is None:
+            return (
+                "**Stickiness DAU/MAU :** Non calculable.\n\n"
+                "Le stickiness nécessite les KPI DAU et MAU. Si le MAU est nul ou absent, "
+                "le ratio DAU/MAU ne peut pas être calculé."
+            )
+
+        return (
+            f"**Stickiness DAU/MAU :** {self._format_optional_percentage(value)}.\n\n"
+            "Ce KPI mesure la part des utilisateurs actifs mensuels qui reviennent "
+            "quotidiennement. Une valeur faible indique un usage plutôt ponctuel, tandis "
+            "qu'une valeur élevée indique un usage plus régulier."
+        )
+
+    def _handle_weekly_recurrence(
+        self,
+        usage_df: pd.DataFrame,
+        web_logs_df: pd.DataFrame,
+        daily_kpis_df: pd.DataFrame,
+    ) -> str:
+        """Répond aux questions sur la récurrence WAU/MAU."""
+
+        base_metrics = self._base_metrics_for_advanced_kpis(
+            usage_df,
+            daily_kpis_df,
+        )
+        advanced_kpis = compute_advanced_adoption_kpis(base_metrics)
+        value = advanced_kpis["weekly_recurrence_wau_mau"]
+
+        if value is None:
+            return (
+                "**Récurrence WAU/MAU :** Non calculable.\n\n"
+                "La récurrence WAU/MAU nécessite les KPI WAU et MAU. Si le MAU est nul "
+                "ou absent, le ratio WAU/MAU ne peut pas être calculé."
+            )
+
+        return (
+            f"**Récurrence WAU/MAU :** {self._format_optional_percentage(value)}.\n\n"
+            "Ce KPI mesure la part des utilisateurs actifs mensuels qui reviennent au "
+            "moins une fois sur la semaine. Il permet d'évaluer la régularité hebdomadaire "
+            "de l'usage observé."
+        )
+
     def _detect_intent(self, normalized_question: str) -> str | None:
         """Détecte l'intention à partir des mots-clés de la question."""
         for intent, keywords in self._INTENT_KEYWORDS.items():
@@ -487,6 +576,13 @@ class KeywordEngine(AssistantPort):
                 "**KPI d’adoption :**": f"**KPI d’adoption de {service_label} :**",
                 "**KPI dâ€™adoption :**": f"**KPI d’adoption de {service_label} :**",
             },
+            "stickiness": {
+                "**Stickiness DAU/MAU :**": f"**Stickiness DAU/MAU de {service_label} :**",
+            },
+            "weekly_recurrence": {
+                "**Récurrence WAU/MAU :**": f"**Récurrence WAU/MAU de {service_label} :**",
+                "**RÃ©currence WAU/MAU :**": f"**Récurrence WAU/MAU de {service_label} :**",
+            },
         }
 
         for source, target in replacements.get(intent, {}).items():
@@ -520,6 +616,23 @@ class KeywordEngine(AssistantPort):
     @staticmethod
     def _detect_comparison_metric(normalized_question: str) -> str | None:
         """Détecte le KPI à comparer dans une question."""
+
+        if (
+            "stickiness" in normalized_question
+            or "dau/mau" in normalized_question
+            or "dau mau" in normalized_question
+            or "dau sur mau" in normalized_question
+        ):
+            return "stickiness"
+
+        if (
+            "wau/mau" in normalized_question
+            or "wau mau" in normalized_question
+            or "wau sur mau" in normalized_question
+            or "récurrence hebdomadaire" in normalized_question
+            or "recurrence hebdomadaire" in normalized_question
+        ):
+            return "weekly_recurrence"
 
         if "dau" in normalized_question or "quotidien" in normalized_question:
             return "dau"
@@ -590,13 +703,22 @@ class KeywordEngine(AssistantPort):
             metrics["active_users"] = frequency["active_users"]
             metrics["total_events"] = frequency["total_events"]
 
+            advanced_kpis = compute_advanced_adoption_kpis(metrics)
+            metrics["stickiness"] = advanced_kpis["stickiness_dau_mau"]
+            metrics["weekly_recurrence"] = advanced_kpis["weekly_recurrence_wau_mau"]
+
             results[service] = metrics
 
         return results
 
     @staticmethod
-    def _format_metric_value(metric: str, value: float | int) -> str:
+    def _format_metric_value(metric: str, value: float | int | None) -> str:
         """Formate une valeur de KPI."""
+
+        if metric in ["stickiness", "weekly_recurrence"]:
+            if value is None:
+                return "Non calculable"
+            return f"{float(value):.1f} %"
 
         if metric == "frequency":
             return f"{float(value):.2f}"
@@ -628,6 +750,8 @@ class KeywordEngine(AssistantPort):
             "wau": "WAU",
             "mau": "MAU",
             "frequency": "fréquence moyenne",
+            "stickiness": "Stickiness DAU/MAU",
+            "weekly_recurrence": "Récurrence WAU/MAU",
         }
 
         if selected_metric is not None:
@@ -662,6 +786,12 @@ class KeywordEngine(AssistantPort):
                     "La fréquence moyenne mesure l’intensité d’usage par utilisateur actif. "
                     "Une valeur élevée peut indiquer un usage fort ou une activité concentrée "
                     "sur certains profils."
+                )
+            elif selected_metric in ["stickiness", "weekly_recurrence"]:
+                lines.append(
+                    "Ce KPI mesure la récurrence parmi les utilisateurs actifs mensuels. "
+                    "Il ne remplace pas le taux d'utilisation réel car la population "
+                    "éligible reste manquante."
                 )
             else:
                 lines.append(

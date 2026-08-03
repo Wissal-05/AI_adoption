@@ -571,6 +571,190 @@ class TestKeywordEngine:
             "quel service a le plus de mau ?"
         )
 
+    def test_answers_stickiness_question(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                    ]
+                ),
+                "user_id": ["u1", "u2", "u1", "u3"],
+                "service": ["Booking", "Booking", "Booking", "Booking"],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
+
+        daily_kpis = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2026-07-03"]),
+                "dau": [1],
+                "wau": [3],
+                "mau": [4],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel est le stickiness ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+                "daily_kpis": daily_kpis,
+            },
+        )
+
+        assert "Stickiness DAU/MAU" in response
+        assert "25.0 %" in response
+
+    def test_answers_weekly_recurrence_question(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-04",
+                    ]
+                ),
+                "user_id": ["u1", "u2", "u3", "u4"],
+                "service": ["Booking", "Booking", "Booking", "Booking"],
+                "action": ["visit", "visit", "visit", "visit"],
+            }
+        )
+
+        daily_kpis = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2026-07-04"]),
+                "dau": [2],
+                "wau": [3],
+                "mau": [4],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quelle est la récurrence WAU/MAU ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+                "daily_kpis": daily_kpis,
+            },
+        )
+
+        assert "Récurrence WAU/MAU" in response
+        assert "75.0 %" in response
+
+    def test_answers_service_specific_stickiness_question(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-03",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b1", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Quel est le stickiness de Booking ?",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Stickiness DAU/MAU de Booking" in response
+
+    def test_compares_stickiness_between_services(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-03",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b1", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Compare le stickiness entre Booking et Learning Center",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison Stickiness DAU/MAU" in response
+        assert "Booking" in response
+        assert "Learning Center" in response
+        assert "Service le plus élevé" in response
+
+    def test_compares_weekly_recurrence_between_services(self):
+        usage_df = pd.DataFrame(
+            {
+                "event_timestamp": pd.to_datetime(
+                    [
+                        "2026-07-01",
+                        "2026-07-02",
+                        "2026-07-03",
+                        "2026-07-01",
+                        "2026-07-02",
+                    ]
+                ),
+                "user_id": ["b1", "b2", "b3", "lc1", "lc2"],
+                "service": [
+                    "Booking",
+                    "Booking",
+                    "Booking",
+                    "Learning Center",
+                    "Learning Center",
+                ],
+                "action": ["visit", "visit", "visit", "visit", "visit"],
+            }
+        )
+
+        response = self.engine.answer(
+            "Compare la récurrence WAU/MAU entre Booking et Learning Center",
+            {
+                "usage_df": usage_df,
+                "web_logs_df": pd.DataFrame(),
+            },
+        )
+
+        assert "Comparaison Récurrence WAU/MAU" in response
+        assert "Booking" in response
+        assert "Learning Center" in response
+        assert "Service le plus élevé" in response
+
 class TestAssistantFactory:
     def test_get_assistant_returns_keyword_engine_by_default(self):
         from adoption_analytics.ai import get_assistant
