@@ -206,14 +206,34 @@ def prepare_unified_entity_usage_table(departmental_df: pd.DataFrame) -> pd.Data
 
     return data[display_columns]
 
-def classify_interaction_type(service: str, interaction: str) -> str:
+def classify_interaction_type(
+    service: str,
+    interaction: str,
+    action: str | None = None,
+) -> str:
     """Classe une interaction dans une catégorie commune."""
 
     service_text = str(service).lower()
     interaction_text = str(interaction).lower()
+    action_text = str(action or "").lower()
 
     if "booking" in service_text:
         return "Action métier"
+
+    if "ecommerce" in service_text or "matomo" in service_text:
+        if interaction_text.startswith("/product/") or action_text == "product_view":
+            return "Vue produit"
+
+        if interaction_text.startswith("/checkout") or action_text == "checkout_visit":
+            return "Tunnel checkout"
+
+        if interaction_text in {"/signin", "/signup", "/login"} or action_text == "auth_visit":
+            return "Authentification"
+
+        if action_text == "catalog_view":
+            return "Catalogue"
+
+        return "Page web"
 
     if interaction_text.startswith("/api") or "/api/" in interaction_text:
         return "API"
@@ -221,10 +241,8 @@ def classify_interaction_type(service: str, interaction: str) -> str:
     if interaction_text.startswith("/") or interaction_text.startswith("http"):
         return "Page / route"
 
-    if "matomo" in service_text:
-        return "Événement web"
-
     return "Événement d’usage"
+
 
 def prepare_unified_top_interactions_table(
     usage_df: pd.DataFrame,
@@ -251,54 +269,91 @@ def prepare_unified_top_interactions_table(
         usage_df["service"].dropna().astype(str).unique().tolist()
     )
 
-    # Booking : actions métier depuis les événements normalisés
-    if "action" in usage_df.columns:
-        booking_events = usage_df[
-            usage_df["service"].astype(str).str.lower().eq("booking")
+    # Services normalisés : Booking, Ecommerce Demo, futures sources usage
+    usage_services = sorted(
+        usage_df["service"].dropna().astype(str).unique().tolist()
+    )
+
+    for service in usage_services:
+        # Learning Center est traité avec les vrais web logs plus bas.
+        if service.lower() == "learning center":
+            continue
+
+        service_events = usage_df[
+            usage_df["service"].astype(str).str.lower().eq(service.lower())
         ].copy()
 
-        if not booking_events.empty:
-            booking_events["interaction"] = (
-                booking_events["action"]
-                .fillna("Non renseigné")
-                .astype(str)
-                .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
+        if service_events.empty:
+            continue
+
+        interaction_column = None
+
+        # Pour Matomo / Ecommerce Demo, la page est plus informative que l'action.
+        if (
+            "page" in service_events.columns
+            and service_events["page"].dropna().astype(str).str.strip().ne("").any()
+        ):
+            interaction_column = "page"
+        elif (
+            "action" in service_events.columns
+            and service_events["action"].dropna().astype(str).str.strip().ne("").any()
+        ):
+            interaction_column = "action"
+
+        if interaction_column is None:
+            continue
+
+        service_events["interaction"] = (
+            service_events[interaction_column]
+            .fillna("Non renseigné")
+            .astype(str)
+            .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
+        )
+
+        if "action" not in service_events.columns:
+            service_events["action"] = None
+
+        service_events["interaction_type"] = service_events.apply(
+            lambda row: classify_interaction_type(
+                service,
+                row["interaction"],
+                row.get("action"),
+            ),
+            axis=1,
+        )
+
+        grouped = (
+            service_events.groupby(["interaction", "interaction_type"])
+            .size()
+            .reset_index(name="events")
+        )
+
+        total_events = grouped["events"].sum()
+
+        for _, row in grouped.iterrows():
+            interaction = row["interaction"]
+            interaction_type = row["interaction_type"]
+            events = int(row["events"])
+
+            rows.append(
+                {
+                    "Service": service,
+                    "Type d’interaction": interaction_type,
+                    "Interaction": interaction,
+                    "Événements": events,
+                    "Part des événements (%)": round(
+                        events / total_events * 100,
+                        2,
+                    )
+                    if total_events
+                    else 0,
+                    "Statut données": (
+                        "Interaction non renseignée"
+                        if interaction == "Non renseigné"
+                        else "Disponible"
+                    ),
+                }
             )
-
-            booking_grouped = (
-                booking_events.groupby("interaction")
-                .size()
-                .reset_index(name="events")
-            )
-
-            booking_total = booking_grouped["events"].sum()
-
-            for _, row in booking_grouped.iterrows():
-                interaction = row["interaction"]
-                events = int(row["events"])
-
-                rows.append(
-                    {
-                        "Service": "Booking",
-                        "Type d’interaction": classify_interaction_type(
-                            "Booking",
-                            interaction,
-                        ),
-                        "Interaction": interaction,
-                        "Événements": events,
-                        "Part des événements (%)": round(
-                            events / booking_total * 100,
-                            2,
-                        )
-                        if booking_total
-                        else 0,
-                        "Statut données": (
-                            "Interaction non renseignée"
-                            if interaction == "Non renseigné"
-                            else "Disponible"
-                        ),
-                    }
-                )
 
     # Learning Center : vraies pages/routes depuis les logs web
     if (
@@ -458,7 +513,20 @@ def prepare_unified_data_quality_table(
             ):
                 interactions_status = "Pages / routes disponibles"
         else:
-            if "action" in service_usage.columns:
+            service_lower = service.lower()
+
+            if "ecommerce" in service_lower or "matomo" in service_lower:
+                if "page" in service_usage.columns:
+                    available_pages = (
+                        service_usage["page"]
+                        .dropna()
+                        .astype(str)
+                        .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
+                    )
+                    if not available_pages.empty:
+                        interactions_status = "Pages Matomo disponibles"
+
+            elif "action" in service_usage.columns:
                 available_actions = (
                     service_usage["action"]
                     .dropna()
@@ -467,7 +535,6 @@ def prepare_unified_data_quality_table(
                 )
                 if not available_actions.empty:
                     interactions_status = "Actions disponibles"
-
         # Statut global
         missing_items = []
 
@@ -1406,8 +1473,9 @@ with dashboard_tab:
         st.caption("Indicateurs dérivés de récurrence")
 
     with advanced_insight_col:
-        render_interpretation_popover(advanced_kpi_insight)
-
+        with st.popover("💡 Interprétation IA"):
+            render_interpretation_popover(advanced_kpi_insight)
+    
     with st.container(horizontal=True):
         st.metric(
             "Stickiness DAU/MAU",
@@ -1499,7 +1567,7 @@ with dashboard_tab:
 
             chart = (
                 alt.Chart(trend_to_display)
-                .mark_line(strokeWidth=2.5)
+                .mark_line(point=True, strokeWidth=2.5)
                 .encode(
                     x=alt.X("date:T", title=""),
                     y=alt.Y(f"{selected_kpi}:Q", title=selected_kpi),
@@ -1507,8 +1575,8 @@ with dashboard_tab:
                         "service:N",
                         title=None,
                         scale=alt.Scale(
-                            domain=["Booking", "Learning Center"],
-                            range=["#1f77d0", "#ff8a00"],
+                            domain=["Booking", "Learning Center", "Ecommerce Demo"],
+                            range=["#1f77d0", "#ff8a00", "#2ca02c"],
                         ),
                         legend=alt.Legend(
                             orient="bottom",
@@ -1629,6 +1697,63 @@ with dashboard_tab:
                         format="%.2f",
                     ),
                 },
+            )
+
+    # ── Synthèse Matomo / Ecommerce Demo ───────────────────────────────────────
+
+    ecommerce_usage = filtered_usage[
+        filtered_usage["service"].astype(str).str.lower().eq("ecommerce demo")
+    ].copy()
+
+    if not ecommerce_usage.empty:
+        with st.container(border=True):
+            st.subheader("Synthèse web analytics — Ecommerce Demo")
+            st.caption(
+                "Données collectées depuis Matomo et normalisées vers le modèle commun. "
+                "Les événements proviennent actuellement d’un export agrégé par page."
+            )
+
+            ecommerce_total_events = len(ecommerce_usage)
+            ecommerce_users = ecommerce_usage["user_id"].nunique()
+            ecommerce_sessions = (
+                ecommerce_usage["session_id"].nunique()
+                if "session_id" in ecommerce_usage.columns
+                else 0
+            )
+            ecommerce_pages = (
+                ecommerce_usage["page"].nunique()
+                if "page" in ecommerce_usage.columns
+                else 0
+            )
+
+            ecommerce_col1, ecommerce_col2, ecommerce_col3, ecommerce_col4 = st.columns(4)
+
+            ecommerce_col1.metric("Événements web", f"{ecommerce_total_events:,}")
+            ecommerce_col2.metric("Visiteurs observés", f"{ecommerce_users:,}")
+            ecommerce_col3.metric("Sessions observées", f"{ecommerce_sessions:,}")
+            ecommerce_col4.metric("Pages suivies", f"{ecommerce_pages:,}")
+
+            if "action" in ecommerce_usage.columns:
+                action_summary = (
+                    ecommerce_usage["action"]
+                    .fillna("Non renseigné")
+                    .astype(str)
+                    .value_counts()
+                    .reset_index()
+                )
+                action_summary.columns = ["Type d’action", "Événements"]
+
+                st.markdown("**Répartition des actions web**")
+                st.dataframe(
+                    action_summary,
+                    hide_index=True,
+                    width="stretch",
+                )
+
+            st.info(
+                "Limite actuelle : les données Matomo sont issues d’un export agrégé. "
+                "Pour obtenir de vrais parcours utilisateur, il faudra ensuite extraire "
+                "les visites détaillées avec l’API Live.getLastVisitsDetails."
             )
 
     # ── Données manquantes / Qualité des données ──────────────────────────────

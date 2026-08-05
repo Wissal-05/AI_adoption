@@ -143,6 +143,8 @@ def load_dashboard_data() -> DashboardData:
     )
     from adoption_analytics.data_sources.booking import BookingSource
 
+    from adoption_analytics.data_sources.matomo import load_matomo_usage_for_dashboard
+
     usage_frames: list[pd.DataFrame] = []
     web_log_frames: list[pd.DataFrame] = []
     raw_by_source: dict[str, dict[str, pd.DataFrame]] = {}
@@ -195,6 +197,28 @@ def load_dashboard_data() -> DashboardData:
     if not booking_df.empty:
         usage_frames.append(booking_df)
         available_sources.append("booking")
+
+    # ── Matomo / Ecommerce Demo ───────────────────────────────────────────────
+    matomo_raw_dir = settings.raw_data_dir / "matomo" / "ecommerce_demo"
+    matomo_processed_dir = (
+        settings.processed_data_dir / "matomo" / "ecommerce_demo"
+    )
+
+    matomo_df = load_matomo_usage_for_dashboard(
+        raw_dir=matomo_raw_dir,
+        processed_dir=matomo_processed_dir,
+        service_name="Ecommerce Demo",
+    )
+
+    raw_by_source["matomo_ecommerce_demo"] = {
+        "usage_events": matomo_df,
+        "raw_dir": str(matomo_raw_dir),
+        "processed_dir": str(matomo_processed_dir),
+    }
+
+    if not matomo_df.empty:
+        usage_frames.append(matomo_df)
+        available_sources.append("matomo_ecommerce_demo")
 
     # ── Sources additionnelles enregistrées dynamiquement ─────────────────────
     for source_name, (cls, config) in _REGISTRY.items():

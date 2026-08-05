@@ -223,3 +223,90 @@ def load_latest_matomo_usage_events(
         export_date=export_date,
         service_name=service_name,
     )
+def find_latest_processed_matomo_usage_export(processed_dir: str | Path) -> Path:
+    """Retourne le dernier fichier usage_events_*.csv normalisé."""
+
+    processed_path = Path(processed_dir)
+    candidates = sorted(processed_path.glob("usage_events_*.csv"))
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"Aucun fichier usage_events_*.csv trouvé dans {processed_path}"
+        )
+
+    return candidates[-1]
+
+
+def load_latest_processed_matomo_usage_events(
+    processed_dir: str | Path,
+) -> pd.DataFrame:
+    """Charge le dernier fichier Matomo déjà normalisé."""
+
+    latest_file = find_latest_processed_matomo_usage_export(processed_dir)
+    usage_df = pd.read_csv(latest_file)
+
+    if "event_timestamp" in usage_df.columns:
+        usage_df["event_timestamp"] = pd.to_datetime(
+            usage_df["event_timestamp"],
+            errors="coerce",
+        )
+
+    for column in COMMON_COLUMNS:
+        if column not in usage_df.columns:
+            if column in {
+                "user_id",
+                "service",
+                "action",
+                "page",
+                "url",
+                "source",
+                "session_id",
+                "event_type",
+                "department",
+                "entity",
+                "campus",
+                "bounce_rate",
+                "exit_rate",
+                "normalization_note",
+            }:
+                usage_df[column] = "Non renseigné"
+            else:
+                usage_df[column] = 0
+
+    usage_df = usage_df.dropna(subset=["event_timestamp", "user_id", "service"])
+
+    return usage_df[COMMON_COLUMNS]
+
+
+def load_matomo_usage_for_dashboard(
+    raw_dir: str | Path,
+    processed_dir: str | Path,
+    service_name: str = "Ecommerce Demo",
+) -> pd.DataFrame:
+    """Charge Matomo pour le dashboard unifié.
+
+    Priorité :
+    1. Utiliser le dernier fichier déjà normalisé dans data/processed.
+    2. Sinon, normaliser automatiquement depuis data/raw.
+    3. Sinon, retourner un DataFrame vide.
+    """
+
+    processed_path = Path(processed_dir)
+    raw_path = Path(raw_dir)
+
+    try:
+        if processed_path.exists() and list(processed_path.glob("usage_events_*.csv")):
+            return load_latest_processed_matomo_usage_events(processed_path)
+    except FileNotFoundError:
+        pass
+
+    try:
+        if raw_path.exists() and list(raw_path.glob("page_urls_*.csv")):
+            return load_latest_matomo_usage_events(
+                raw_path,
+                service_name=service_name,
+            )
+    except FileNotFoundError:
+        pass
+
+    return pd.DataFrame(columns=COMMON_COLUMNS)
