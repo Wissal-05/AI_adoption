@@ -524,7 +524,16 @@ def prepare_unified_data_quality_table(
                         .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
                     )
                     if not available_pages.empty:
-                        interactions_status = "Pages Matomo disponibles"
+                        service_sources = get_source_values(service_usage)
+                        has_live_matomo = "matomo_live" in service_sources
+                        has_any_matomo = any(
+                            source.startswith("matomo") for source in service_sources
+                        )
+
+                        if has_live_matomo:
+                            interactions_status = "Parcours Matomo Live disponibles"
+                        elif has_any_matomo:
+                            interactions_status = "Pages Matomo disponibles"
 
             elif "action" in service_usage.columns:
                 available_actions = (
@@ -738,6 +747,129 @@ def prepare_advanced_kpis_interpretation(
             "population éligible par service."
         ),
     }
+
+def get_source_values(data: pd.DataFrame) -> set[str]:
+    """Retourne les valeurs de source disponibles dans un dataframe."""
+
+    if data.empty or "source" not in data.columns:
+        return set()
+
+    return set(
+        data["source"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+
+def has_matomo_live_source(data: pd.DataFrame) -> bool:
+    """Indique si le dataframe contient des données détaillées Matomo Live."""
+
+    return "matomo_live" in get_source_values(data)
+
+
+def has_matomo_source(data: pd.DataFrame) -> bool:
+    """Indique si le dataframe contient des données provenant de Matomo."""
+
+    sources = get_source_values(data)
+
+    return any(source.startswith("matomo") for source in sources)
+
+
+def prepare_matomo_live_journey_preview(
+    ecommerce_usage: pd.DataFrame,
+    max_rows: int = 10,
+) -> pd.DataFrame:
+    """Prépare un aperçu lisible des parcours visiteurs Matomo Live."""
+
+    required_columns = {"source", "user_id", "session_id", "action", "page"}
+
+    if ecommerce_usage.empty or not required_columns.issubset(ecommerce_usage.columns):
+        return pd.DataFrame()
+
+    live_events = ecommerce_usage[
+        ecommerce_usage["source"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+        .eq("matomo_live")
+    ].copy()
+
+    if live_events.empty:
+        return pd.DataFrame()
+
+    if "event_timestamp" in live_events.columns:
+        live_events["event_timestamp"] = pd.to_datetime(
+            live_events["event_timestamp"],
+            errors="coerce",
+        )
+        live_events = live_events.sort_values(
+            ["session_id", "event_timestamp"],
+            na_position="last",
+        )
+    else:
+        live_events = live_events.sort_values(["session_id"])
+
+    rows = []
+
+    for (user_id, session_id), session_events in live_events.groupby(
+        ["user_id", "session_id"],
+        dropna=False,
+    ):
+        pages = (
+            session_events["page"]
+            .fillna("Non renseigné")
+            .astype(str)
+            .replace({"": "Non renseigné"})
+            .tolist()
+        )
+
+        actions = (
+            session_events["action"]
+            .fillna("Non renseigné")
+            .astype(str)
+            .replace({"": "Non renseigné"})
+            .tolist()
+        )
+
+        row = {
+            "Utilisateur": user_id,
+            "Session": session_id,
+            "Nb actions": len(session_events),
+            "Pages distinctes": session_events["page"].nunique(),
+            "Parcours pages": "  ".join(pages[:6]),
+            "Actions": "  ".join(actions[:6]),
+        }
+
+        if "event_timestamp" in session_events.columns:
+            start_time = session_events["event_timestamp"].min()
+            end_time = session_events["event_timestamp"].max()
+
+            row["Début"] = (
+                start_time.strftime("%Y-%m-%d %H:%M:%S")
+                if pd.notna(start_time)
+                else "Non renseigné"
+            )
+            row["Fin"] = (
+                end_time.strftime("%Y-%m-%d %H:%M:%S")
+                if pd.notna(end_time)
+                else "Non renseigné"
+            )
+
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    journey_df = pd.DataFrame(rows)
+
+    return (
+        journey_df
+        .sort_values("Nb actions", ascending=False)
+        .head(max_rows)
+        .reset_index(drop=True)
+    )
 
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
 if st.sidebar.button("Rafraîchir les données"):
@@ -1706,12 +1838,34 @@ with dashboard_tab:
     ].copy()
 
     if not ecommerce_usage.empty:
+        ecommerce_is_live = has_matomo_live_source(ecommerce_usage)
+        ecommerce_has_matomo = has_matomo_source(ecommerce_usage)
+
         with st.container(border=True):
             st.subheader("Synthèse web analytics — Ecommerce Demo")
-            st.caption(
-                "Données collectées depuis Matomo et normalisées vers le modèle commun. "
-                "Les événements proviennent actuellement d’un export agrégé par page."
-            )
+
+            if ecommerce_is_live:
+                st.caption(
+                    "Données détaillées extraites via Matomo "
+                    "Live.getLastVisitsDetails et normalisées vers le modèle commun."
+                )
+                st.success(
+                    "Mode d'extraction actif : RAW Matomo Live — visites, "
+                    "sessions, actionDetails et pages consultées sont disponibles."
+                )
+            elif ecommerce_has_matomo:
+                st.caption(
+                    "Données collectées depuis Matomo et normalisées vers le modèle commun. "
+                    "Les événements proviennent actuellement d'un export agrégé par page."
+                )
+                st.warning(
+                    "Mode d'extraction actif : agrégé par page — suffisant pour "
+                    "les top pages, mais limité pour l'analyse détaillée des parcours visiteurs."
+                )
+            else:
+                st.caption(
+                    "Données Ecommerce Demo normalisées vers le modèle commun."
+                )
 
             ecommerce_total_events = len(ecommerce_usage)
             ecommerce_users = ecommerce_usage["user_id"].nunique()
@@ -1741,7 +1895,7 @@ with dashboard_tab:
                     .value_counts()
                     .reset_index()
                 )
-                action_summary.columns = ["Type d’action", "Événements"]
+                action_summary.columns = ["Type d'action", "Événements"]
 
                 st.markdown("**Répartition des actions web**")
                 st.dataframe(
@@ -1750,11 +1904,36 @@ with dashboard_tab:
                     width="stretch",
                 )
 
-            st.info(
-                "Limite actuelle : les données Matomo sont issues d’un export agrégé. "
-                "Pour obtenir de vrais parcours utilisateur, il faudra ensuite extraire "
-                "les visites détaillées avec l’API Live.getLastVisitsDetails."
-            )
+            if ecommerce_is_live:
+                journey_preview = prepare_matomo_live_journey_preview(ecommerce_usage)
+
+                st.markdown("**Aperçu des parcours visiteurs Matomo Live**")
+
+                if journey_preview.empty:
+                    st.info(
+                        "Les données Matomo Live sont détectées, mais aucun parcours "
+                        "visiteur exploitable n'a été trouvé dans les colonnes disponibles."
+                    )
+                else:
+                    st.dataframe(
+                        journey_preview,
+                        hide_index=True,
+                        width="stretch",
+                    )
+
+                st.info(
+                    "Lecture : ces données proviennent des actionDetails détaillés "
+                    "de Matomo. Elles permettent une analyse plus fine des parcours "
+                    "visiteurs. Les limites métier restent toutefois les mêmes : "
+                    "population éligible, mapping entité/campus et seuils d'adoption "
+                    "ne sont pas encore disponibles."
+                )
+            elif ecommerce_has_matomo:
+                st.info(
+                    "Limite actuelle : les données Matomo sont issues d'un export agrégé. "
+                    "Pour obtenir de vrais parcours utilisateur, il faut utiliser "
+                    "l'API Live.getLastVisitsDetails."
+                )
 
     # ── Données manquantes / Qualité des données ──────────────────────────────
 
