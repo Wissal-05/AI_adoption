@@ -310,3 +310,171 @@ def load_matomo_usage_for_dashboard(
         pass
 
     return pd.DataFrame(columns=COMMON_COLUMNS)
+
+
+def _extract_path_from_url(url: str | None) -> str:
+    """Extrait le chemin d'une URL Matomo."""
+
+    from urllib.parse import urlparse
+
+    if not url or pd.isna(url):
+        return "Non renseigné"
+
+    parsed = urlparse(str(url))
+    return parsed.path or "/"
+
+
+def _parse_live_action_timestamp(
+    visit: dict,
+    action: dict,
+    fallback_timestamp: pd.Timestamp,
+) -> pd.Timestamp:
+    """Construit un timestamp fiable pour une action RAW Matomo."""
+
+    raw_timestamp = action.get("timestamp")
+
+    if raw_timestamp is not None:
+        parsed_timestamp = pd.to_datetime(
+            raw_timestamp,
+            unit="s",
+            errors="coerce",
+        )
+
+        if pd.notna(parsed_timestamp):
+            return parsed_timestamp
+
+    for candidate in [
+        action.get("serverDatePretty"),
+        action.get("serverTimePretty"),
+        visit.get("lastActionDateTime"),
+        visit.get("serverDate"),
+    ]:
+        if candidate:
+            parsed_timestamp = pd.to_datetime(candidate, errors="coerce")
+
+            if pd.notna(parsed_timestamp):
+                return parsed_timestamp
+
+    return fallback_timestamp
+
+
+def normalize_matomo_live_visits(
+    live_visits: list[dict],
+    export_date: str | pd.Timestamp | None = None,
+    service_name: str = "Ecommerce Demo",
+) -> pd.DataFrame:
+    """Normalise Live.getLastVisitsDetails vers le modèle commun.
+
+    Contrairement à Actions.getPageUrls, cette source est détaillée :
+    on utilise les actionDetails réels de chaque visite.
+    """
+
+    if not live_visits:
+        return pd.DataFrame(columns=COMMON_COLUMNS)
+
+    base_timestamp = pd.Timestamp(export_date or pd.Timestamp.now()).normalize()
+
+    rows = []
+    global_event_index = 0
+
+    for visit_index, visit in enumerate(live_visits, start=1):
+        visitor_id = (
+            visit.get("visitorId")
+            or visit.get("userId")
+            or f"matomo_visitor_{visit_index:03d}"
+        )
+
+        visit_id = (
+            visit.get("idVisit")
+            or visit.get("visitId")
+            or f"matomo_visit_{visit_index:03d}"
+        )
+
+        action_details = visit.get("actionDetails") or []
+
+        for action_detail in action_details:
+            fallback_timestamp = base_timestamp + pd.Timedelta(
+                seconds=global_event_index
+            )
+
+            event_timestamp = _parse_live_action_timestamp(
+                visit=visit,
+                action=action_detail,
+                fallback_timestamp=fallback_timestamp,
+            )
+
+            global_event_index += 1
+
+            url = action_detail.get("url")
+            page = _extract_path_from_url(url)
+            action = classify_matomo_page_action(page)
+
+            event_type = action_detail.get("type") or "page_view"
+            if event_type == "action":
+                event_type = "page_view"
+
+            rows.append(
+                {
+                    "event_timestamp": event_timestamp,
+                    "date": event_timestamp.date().isoformat(),
+                    "event_date_local": event_timestamp.date().isoformat(),
+                    "user_id": f"matomo_visitor_{visitor_id}",
+                    "service": service_name,
+                    "action": action,
+                    "page": page,
+                    "url": url,
+                    "source": "matomo_live",
+                    "session_id": f"matomo_visit_{visit_id}",
+                    "event_type": event_type,
+                    "department": "Non renseigné",
+                    "entity": "Non renseigné",
+                    "campus": "Non renseigné",
+                    "nb_visits": 1,
+                    "nb_uniq_visitors": 1,
+                    "nb_hits": 1,
+                    "sum_time_spent": _to_float(action_detail.get("timeSpent")),
+                    "avg_time_on_page": _to_float(action_detail.get("timeSpent")),
+                    "bounce_rate": None,
+                    "exit_rate": None,
+                    "normalization_note": (
+                        "Événement détaillé extrait depuis Live.getLastVisitsDetails."
+                    ),
+                }
+            )
+
+    return pd.DataFrame(rows, columns=COMMON_COLUMNS)
+
+
+def find_latest_matomo_live_visits_export(raw_dir: str | Path) -> Path:
+    """Retourne le dernier fichier live_visits_*.json exporté."""
+
+    raw_path = Path(raw_dir)
+    candidates = sorted(raw_path.glob("live_visits_*.json"))
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"Aucun fichier live_visits_*.json trouvé dans {raw_path}"
+        )
+
+    return candidates[-1]
+
+
+def load_latest_matomo_live_usage_events(
+    raw_dir: str | Path,
+    service_name: str = "Ecommerce Demo",
+) -> pd.DataFrame:
+    """Charge le dernier export RAW Matomo et retourne un usage_df détaillé."""
+
+    latest_file = find_latest_matomo_live_visits_export(raw_dir)
+
+    live_visits = json.loads(
+        latest_file.read_text(encoding="utf-8")
+    )
+
+    export_date = extract_export_date_from_filename(latest_file.name)
+
+    return normalize_matomo_live_visits(
+        live_visits=live_visits,
+        export_date=export_date,
+        service_name=service_name,
+    )

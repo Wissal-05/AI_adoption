@@ -4,6 +4,7 @@ from adoption_analytics.data_sources.matomo import (
     classify_matomo_page_action,
     load_latest_processed_matomo_usage_events,
     load_matomo_usage_for_dashboard,
+    normalize_matomo_live_visits,
     normalize_matomo_page_urls,
 )
 
@@ -211,6 +212,74 @@ def test_load_matomo_usage_for_dashboard_returns_empty_without_files(tmp_path):
     usage_df = load_matomo_usage_for_dashboard(
         raw_dir=tmp_path / "missing_raw",
         processed_dir=tmp_path / "missing_processed",
+        service_name="Ecommerce Demo",
+    )
+
+    assert usage_df.empty
+
+
+def test_normalizes_matomo_live_visits_to_common_model():
+    live_visits = [
+        {
+            "visitorId": "abc123",
+            "idVisit": "1001",
+            "deviceType": "Desktop",
+            "browserName": "Chrome",
+            "operatingSystemName": "Windows",
+            "country": "Morocco",
+            "referrerType": "direct",
+            "actionDetails": [
+                {
+                    "type": "action",
+                    "url": "http://localhost:3000/shop",
+                    "pageTitle": "Shop | Salinaka",
+                    "timestamp": 1785888000,
+                    "timeSpent": 5,
+                },
+                {
+                    "type": "action",
+                    "url": "http://localhost:3000/product/demo-product-001",
+                    "pageTitle": "View Clear Vision Classic",
+                    "timestamp": 1785888005,
+                    "timeSpent": 12,
+                },
+                {
+                    "type": "action",
+                    "url": "http://localhost:3000/checkout/step1",
+                    "pageTitle": "Checkout",
+                    "timestamp": 1785888017,
+                    "timeSpent": 3,
+                },
+            ],
+        }
+    ]
+
+    usage_df = normalize_matomo_live_visits(
+        live_visits=live_visits,
+        export_date="2026-08-05",
+        service_name="Ecommerce Demo",
+    )
+
+    assert len(usage_df) == 3
+    assert set(usage_df["service"]) == {"Ecommerce Demo"}
+    assert set(usage_df["source"]) == {"matomo_live"}
+    assert set(usage_df["event_type"]) == {"page_view"}
+    assert usage_df["user_id"].nunique() == 1
+    assert usage_df["session_id"].nunique() == 1
+
+    assert "catalog_view" in usage_df["action"].values
+    assert "product_view" in usage_df["action"].values
+    assert "checkout_visit" in usage_df["action"].values
+
+    assert "/shop" in usage_df["page"].values
+    assert "/product/demo-product-001" in usage_df["page"].values
+    assert "/checkout/step1" in usage_df["page"].values
+
+
+def test_normalizes_empty_matomo_live_visits():
+    usage_df = normalize_matomo_live_visits(
+        live_visits=[],
+        export_date="2026-08-05",
         service_name="Ecommerce Demo",
     )
 
