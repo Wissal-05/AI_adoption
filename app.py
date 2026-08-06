@@ -671,8 +671,14 @@ def render_interpretation_popover(insight: dict) -> None:
     st.markdown("**Interprétation**")
     st.write(insight["interpretation"])
 
-    st.markdown("**Recommandation**")
-    st.write(insight["recommendation"])
+    if "recommendation" in insight:
+        st.markdown("**Recommandation**")
+        st.write(insight["recommendation"])
+
+    recommendations = insight.get("recommendations", [])
+    if recommendations:
+        st.markdown("**Recommandations**")
+        render_recommendations(recommendations)
 
 def prepare_advanced_kpis_interpretation(
     advanced_kpis: dict,
@@ -871,8 +877,322 @@ def prepare_matomo_live_journey_preview(
         .reset_index(drop=True)
     )
 
+
+# ── RECOMMANDATIONS HELPERS ─────────────────────────────────────────────
+
+def build_recommendation_section(
+    title: str,
+    recommendations: list[str],
+) -> dict:
+    """Construit une section standardisée de recommandations."""
+
+    cleaned_recommendations = [
+        recommendation.strip()
+        for recommendation in recommendations
+        if isinstance(recommendation, str) and recommendation.strip()
+    ]
+
+    return {
+        "title": title,
+        "recommendations": cleaned_recommendations,
+    }
+
+def render_recommendations(recommendations: list[str]) -> None:
+    """Affiche une liste de recommandations dans un popover ou un conteneur."""
+
+    if not recommendations:
+        st.info("Aucune recommandation spécifique générée pour ce bloc.")
+        return
+
+    for recommendation in recommendations:
+        st.markdown(f"- {recommendation}")
+
+def add_recommendations_to_insight(
+    insight: dict,
+    recommendations: list[str],
+) -> dict:
+    """Ajoute des recommandations à un dictionnaire d'interprétation existant."""
+
+    if insight is None:
+        insight = {}
+
+    enriched_insight = dict(insight)
+    enriched_insight["recommendations"] = [
+        recommendation
+        for recommendation in recommendations
+        if isinstance(recommendation, str) and recommendation.strip()
+    ]
+
+    return enriched_insight
+
+def prepare_kpi_recommendations(metrics: dict) -> list[str]:
+    """Génère des recommandations opérationnelles à partir des KPI globaux."""
+
+    recommendations = []
+
+    dau = metrics.get("dau")
+    wau = metrics.get("wau")
+    mau = metrics.get("mau")
+    frequency = metrics.get("avg_events_per_active_user")
+
+    if dau is not None and mau:
+        try:
+            stickiness = float(dau) / float(mau) * 100
+            if stickiness < 5:
+                recommendations.append(
+                    "Surveiller la récurrence d'usage : le rapport DAU/MAU semble faible, "
+                    "ce qui peut indiquer un usage occasionnel plutôt qu'une adoption régulière."
+                )
+            else:
+                recommendations.append(
+                    "Maintenir le suivi de la récurrence : le niveau d'activité quotidienne "
+                    "par rapport au mensuel permet d'évaluer l'engagement réel."
+                )
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+
+    if frequency is not None:
+        try:
+            frequency_value = float(frequency)
+            if frequency_value > 500:
+                recommendations.append(
+                    "Analyser les profils ou services à très forte fréquence afin de vérifier "
+                    "s'il s'agit d'un usage métier normal, d'un processus automatisé ou d'un comportement atypique."
+                )
+            elif frequency_value < 5:
+                recommendations.append(
+                    "Identifier les freins d'usage possibles : faible fréquence, faible visibilité du service, "
+                    "besoin de formation ou parcours utilisateur trop complexe."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    recommendations.append(
+        "Compléter la population éligible par service pour transformer les utilisateurs actifs "
+        "en vrai taux d'adoption."
+    )
+
+    return recommendations
+
+def prepare_advanced_kpi_recommendations(
+    advanced_kpis: dict,
+) -> list[str]:
+    """Génère des recommandations pour stickiness et WAU/MAU."""
+
+    recommendations = []
+
+    stickiness = advanced_kpis.get("stickiness_dau_mau")
+    weekly_recurrence = advanced_kpis.get("weekly_recurrence_wau_mau")
+
+    if stickiness is not None:
+        try:
+            stickiness_value = float(stickiness)
+            if stickiness_value < 5:
+                recommendations.append(
+                    "Mettre en place des actions d'activation ou de rappel pour augmenter "
+                    "l'usage quotidien du service."
+                )
+            elif stickiness_value < 20:
+                recommendations.append(
+                    "Analyser les segments d'utilisateurs les plus réguliers afin d'identifier "
+                    "les bonnes pratiques à généraliser."
+                )
+            else:
+                recommendations.append(
+                    "Conserver le suivi du stickiness pour détecter rapidement une baisse "
+                    "d'engagement quotidien."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    if weekly_recurrence is not None:
+        try:
+            recurrence_value = float(weekly_recurrence)
+            if recurrence_value < 20:
+                recommendations.append(
+                    "Renforcer l'accompagnement utilisateur : une faible récurrence hebdomadaire "
+                    "peut indiquer que le service n'est pas encore intégré dans les habitudes."
+                )
+            else:
+                recommendations.append(
+                    "Exploiter la récurrence hebdomadaire comme indicateur de fidélisation "
+                    "et suivre son évolution dans le temps."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    recommendations.append(
+        "Comparer ces ratios uniquement entre services ayant une logique d'usage comparable."
+    )
+
+    return recommendations
+
+def prepare_evolution_recommendations(
+    evolution_data: pd.DataFrame,
+    selected_metric: str | None = None,
+    selected_service: str | None = None,
+) -> list[str]:
+    """Génère des recommandations à partir de l'évolution temporelle."""
+
+    recommendations = []
+
+    context = ""
+    if selected_service and selected_service != "Tous les services":
+        context = f" pour {selected_service}"
+
+    if evolution_data is None or evolution_data.empty:
+        return [
+            "Collecter un historique plus long afin d'analyser les tendances, les ruptures "
+            "et les variations saisonnières."
+        ]
+
+    recommendations.append(
+        f"Surveiller les ruptures de tendance{context} afin d'identifier rapidement "
+        "une baisse d'usage, un incident ou un changement de comportement utilisateur."
+    )
+
+    recommendations.append(
+        "Corréler les pics et baisses d'activité avec le calendrier métier, les incidents, "
+        "les mises en production ou les campagnes de communication."
+    )
+
+    if selected_metric:
+        recommendations.append(
+            f"Analyser la métrique {selected_metric} séparément pour éviter de mélanger "
+            "des indicateurs qui ne mesurent pas le même comportement."
+        )
+
+    return recommendations
+
+def prepare_entity_usage_recommendations(
+    entity_usage_table: pd.DataFrame,
+) -> list[str]:
+    """Génère des recommandations pour l'usage par entité/campus."""
+
+    recommendations = []
+
+    if entity_usage_table is None or entity_usage_table.empty:
+        return [
+            "Compléter le mapping utilisateur vers entité, campus ou direction afin "
+            "de permettre une analyse organisationnelle fiable."
+        ]
+
+    table_text = entity_usage_table.astype(str).to_string().lower()
+
+    if "non renseigné" in table_text or "mapping" in table_text or "manquant" in table_text:
+        recommendations.append(
+            "Prioriser la récupération du mapping utilisateur vers entité/campus/direction "
+            "pour éviter une analyse limitée à 'Non renseigné'."
+        )
+
+    recommendations.append(
+        "Comparer les campus ou entités uniquement lorsque le mapping est disponible "
+        "et que les populations éligibles sont connues."
+    )
+
+    recommendations.append(
+        "Identifier les entités à faible usage afin de proposer un accompagnement ciblé, "
+        "une communication ou une formation."
+    )
+
+    recommendations.append(
+        "Pour les entités à usage très élevé, vérifier si l'activité correspond à un besoin métier "
+        "normal ou à un comportement atypique."
+    )
+
+    return recommendations
+
+def prepare_top_interactions_recommendations(
+    top_interactions_table: pd.DataFrame,
+) -> list[str]:
+    """Génère des recommandations pour les pages/actions les plus utilisées."""
+
+    recommendations = []
+
+    if top_interactions_table is None or top_interactions_table.empty:
+        return [
+            "Définir un dictionnaire des actions métier afin d'interpréter correctement "
+            "les interactions les plus fréquentes."
+        ]
+
+    table_text = top_interactions_table.astype(str).to_string().lower()
+
+    if "checkout" in table_text or "tunnel" in table_text:
+        recommendations.append(
+            "Analyser le tunnel checkout : les passages fréquents sur ces pages peuvent révéler "
+            "un parcours critique à optimiser."
+        )
+
+    if "signin" in table_text or "authentification" in table_text or "auth" in table_text or "login" in table_text:
+        recommendations.append(
+            "Vérifier le parcours d'authentification : une forte présence des pages de connexion "
+            "peut indiquer un point d'entrée important ou un potentiel frottement utilisateur."
+        )
+
+    if "product" in table_text or "vue produit" in table_text:
+        recommendations.append(
+            "Identifier les pages produit les plus consultées et vérifier si elles conduisent "
+            "à des actions de conversion ou à une navigation utile."
+        )
+
+    recommendations.append(
+        "Associer chaque interaction à une signification métier : consultation, recherche, création, "
+        "mise à jour, validation ou abandon."
+    )
+
+    recommendations.append(
+        "Optimiser en priorité les pages ou actions les plus fréquentes, car leur amélioration "
+        "aura l'impact le plus visible sur l'expérience utilisateur."
+    )
+
+    return recommendations
+
+def prepare_data_quality_recommendations(
+    data_quality_table: pd.DataFrame,
+) -> list[str]:
+    """Génère des recommandations à partir de la qualité des données."""
+
+    recommendations = []
+
+    if data_quality_table is None or data_quality_table.empty:
+        return [
+            "Mettre en place une matrice de disponibilité des données par service "
+            "pour suivre les champs manquants."
+        ]
+
+    table_text = data_quality_table.astype(str).to_string().lower()
+
+    if "population" in table_text or "non calculable" in table_text or "manquante" in table_text:
+        recommendations.append(
+            "Collecter la population éligible par service afin de calculer un vrai taux "
+            "d'utilisation/adoption."
+        )
+
+    if "mapping" in table_text or "non renseigné" in table_text or "manquant" in table_text:
+        recommendations.append(
+            "Compléter le mapping utilisateur vers entité/campus/direction pour permettre "
+            "l'analyse organisationnelle."
+        )
+
+    if "seuil" in table_text or "à compléter" in table_text:
+        recommendations.append(
+            "Définir des seuils métier pour qualifier l'adoption : faible, moyenne, bonne ou critique."
+        )
+
+    recommendations.append(
+        "Documenter clairement les champs disponibles, manquants et non calculables pour chaque service."
+    )
+
+    recommendations.append(
+        "Ne pas remplacer les données manquantes par des valeurs fictives dans le dashboard réel ; "
+        "afficher 'Non renseigné' ou 'Non calculable'."
+    )
+
+    return recommendations
+
 # ── Sidebar — sources & filtres ────────────────────────────────────────────────
 if st.sidebar.button("Rafraîchir les données"):
+
     load_data.clear()
     st.rerun()
 
@@ -1567,6 +1887,10 @@ with dashboard_tab:
         dashboard_adoption_vm.metrics,
         filtered_usage,
     )
+    kpi_interpretation = add_recommendations_to_insight(
+        kpi_interpretation,
+        prepare_kpi_recommendations(dashboard_adoption_vm.metrics),
+    )
 
     kpi_title_col, kpi_popover_col = st.columns(
         [4, 1],
@@ -1597,6 +1921,10 @@ with dashboard_tab:
     advanced_kpi_insight = prepare_advanced_kpis_interpretation(
         advanced_kpis,
         dashboard_adoption_vm.metrics,
+    )
+    advanced_kpi_insight = add_recommendations_to_insight(
+        advanced_kpi_insight,
+        prepare_advanced_kpi_recommendations(advanced_kpis),
     )
 
     advanced_title_col, advanced_insight_col = st.columns([4, 1])
@@ -1685,6 +2013,14 @@ with dashboard_tab:
                 selected_metric_label,
                 selected_kpi,
             )
+            evolution_interpretation = add_recommendations_to_insight(
+                evolution_interpretation,
+                prepare_evolution_recommendations(
+                    evolution_data=unified_trend,
+                    selected_metric=selected_metric_label,
+                    selected_service=selected_service,
+                ),
+            )
 
             with interpretation_popover_col:
                 with st.popover("💡 Interprétation IA"):
@@ -1745,6 +2081,10 @@ with dashboard_tab:
         entity_usage_interpretation = prepare_entity_usage_interpretation(
             unified_entity_usage,
         )
+        entity_usage_interpretation = add_recommendations_to_insight(
+            entity_usage_interpretation,
+            prepare_entity_usage_recommendations(unified_entity_usage),
+        )
 
         with entity_interpretation_col:
             with st.popover("💡 Interprétation IA"):
@@ -1801,6 +2141,10 @@ with dashboard_tab:
 
         top_interactions_interpretation = prepare_top_interactions_interpretation(
             unified_top_interactions,
+        )
+        top_interactions_interpretation = add_recommendations_to_insight(
+            top_interactions_interpretation,
+            prepare_top_interactions_recommendations(unified_top_interactions),
         )
 
         with top_interpretation_col:
@@ -1928,11 +2272,34 @@ with dashboard_tab:
                     "population éligible, mapping entité/campus et seuils d'adoption "
                     "ne sont pas encore disponibles."
                 )
+                
+                st.markdown("**Recommandations Matomo Live**")
+                render_recommendations(
+                    [
+                        "Analyser les parcours les plus fréquents pour identifier les pages d'entrée, "
+                        "les pages critiques et les éventuels points de sortie.",
+                        "Surveiller les pages produit les plus consultées afin de comprendre les centres "
+                        "d'intérêt utilisateurs.",
+                        "Vérifier le tunnel checkout pour détecter d'éventuels blocages ou abandons.",
+                        "Compléter les données Matomo par un référentiel métier pour distinguer simple navigation "
+                        "et adoption réelle.",
+                    ]
+                )
             elif ecommerce_has_matomo:
                 st.info(
                     "Limite actuelle : les données Matomo sont issues d'un export agrégé. "
                     "Pour obtenir de vrais parcours utilisateur, il faut utiliser "
                     "l'API Live.getLastVisitsDetails."
+                )
+                
+                st.markdown("**Recommandations Matomo**")
+                render_recommendations(
+                    [
+                        "Passer à l'extraction RAW via Live.getLastVisitsDetails pour reconstruire "
+                        "les parcours visiteurs.",
+                        "Utiliser les top pages agrégées pour identifier les sections les plus consultées.",
+                        "Compléter l'analyse avec des objectifs de conversion et des actions métier.",
+                    ]
                 )
 
     # ── Données manquantes / Qualité des données ──────────────────────────────
@@ -1954,6 +2321,10 @@ with dashboard_tab:
 
         data_quality_interpretation = prepare_data_quality_interpretation(
             unified_data_quality,
+        )
+        data_quality_interpretation = add_recommendations_to_insight(
+            data_quality_interpretation,
+            prepare_data_quality_recommendations(unified_data_quality),
         )
 
         with dq_interpretation_col:
