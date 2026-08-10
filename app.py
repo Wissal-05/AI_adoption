@@ -29,11 +29,21 @@ from adoption_analytics.metrics.adoption import (
     departmental_breakdown,
     compute_advanced_adoption_kpis,
 )
-
+from adoption_analytics.ui.filters import (
+    PERIOD_OPTIONS,
+    apply_date_filter,
+    compute_period_change,
+    get_available_date_bounds,
+    get_previous_window,
+    resolve_period,
+)
+from adoption_analytics.ui.theme import apply_um6p_theme
 
 # ── Configuration de la page ───────────────────────────────────────────────────
 
 st.set_page_config(page_title="AI Adoption Analytics", layout="wide")
+
+apply_um6p_theme()
 
 
 # ── Chargement des données (mis en cache par session) ─────────────────────────
@@ -88,13 +98,9 @@ def build_unified_adoption_trend(usage_df: pd.DataFrame) -> pd.DataFrame:
 
         daily_events = service_df.groupby("date").size().to_dict()
 
-        date_range = pd.date_range(
-            service_df["date"].min(),
-            service_df["date"].max(),
-            freq="D",
-        )
+        unique_dates = sorted(service_df["date"].unique())
 
-        for current_date in date_range:
+        for current_date in unique_dates:
             day_users = daily_users.get(current_date, set())
             day_events = int(daily_events.get(current_date, 0))
 
@@ -1196,19 +1202,102 @@ if st.sidebar.button("Rafraîchir les données"):
     load_data.clear()
     st.rerun()
 
-with st.sidebar:
-    st.header("Filtres")
-    filter_opts = dashboard_service.get_filter_options(data.usage_events)
-    selected_services = st.multiselect(
-        "Services", filter_opts["services"], default=filter_opts["services"]
-    )
-    selected_departments = st.multiselect(
-        "Entités / campus", filter_opts["departments"], default=filter_opts["departments"]
+filter_opts = dashboard_service.get_filter_options(data.usage_events)
+
+available_services = sorted(
+    data.usage_events["service"]
+    .dropna()
+    .astype(str)
+    .unique()
+    .tolist()
+)
+
+st.markdown("### Analyse")
+
+control_service, control_period = st.columns([1, 1])
+
+with control_service:
+    selected_service = st.selectbox(
+        "Service",
+        ["Tous les services"] + available_services,
+        index=0,
+        key="global_service_filter",
     )
 
-filtered_usage = DashboardService.apply_filters(
-    data.usage_events, selected_services, selected_departments
-)
+# Le service pilote le dataset servant à déterminer la période disponible.
+if selected_service == "Tous les services":
+    service_usage = data.usage_events.copy()
+else:
+    service_usage = data.usage_events[
+        data.usage_events["service"].astype(str).eq(selected_service)
+    ].copy()
+
+available_start, available_end = get_available_date_bounds(service_usage)
+
+with control_period:
+    selected_period = st.selectbox(
+        "Période",
+        PERIOD_OPTIONS,
+        index=0,
+        key="global_period_filter",
+    )
+
+custom_start = None
+custom_end = None
+
+if (
+    selected_period == "Période personnalisée"
+    and available_start is not None
+    and available_end is not None
+):
+    custom_col1, custom_col2 = st.columns(2)
+
+    with custom_col1:
+        custom_start = st.date_input(
+            "Du",
+            value=available_start.date(),
+            min_value=available_start.date(),
+            max_value=available_end.date(),
+            key="custom_start_date",
+        )
+
+    with custom_col2:
+        custom_end = st.date_input(
+            "Au",
+            value=available_end.date(),
+            min_value=available_start.date(),
+            max_value=available_end.date(),
+            key="custom_end_date",
+        )
+
+if available_start is None or available_end is None:
+    st.warning("Aucune donnée datée disponible avec cette sélection.")
+    filtered_usage = service_usage.iloc[0:0].copy()
+    current_window = None
+else:
+    current_window = resolve_period(
+        selected_period,
+        available_start,
+        available_end,
+        custom_start=custom_start,
+        custom_end=custom_end,
+    )
+
+    filtered_usage = apply_date_filter(
+        service_usage,
+        current_window,
+    )
+
+previous_usage = pd.DataFrame()
+
+if current_window is not None:
+    previous_window = get_previous_window(current_window)
+
+    previous_usage = apply_date_filter(
+        service_usage,
+        previous_window,
+    )
+
 
 def prepare_evolution_interpretation(
     trend_df: pd.DataFrame,
@@ -1868,50 +1957,136 @@ dashboard_tab,learning_center_tab, adoption_tab, security_tab, booking_tab, assi
 # ── Onglet Dashboard adoption unifié ───────────────────────────────────────────
 
 with dashboard_tab:
-    st.subheader("Dashboard adoption unifié")
-    st.caption(
-        "Vue centrale multi-application basée sur un modèle commun de données. "
-        "Les services sont analysés avec la même structure afin d'assurer une expérience cohérente."
-    )
+    header_col1, header_col2 = st.columns([4, 1])
+
+    with header_col1:
+        st.markdown(
+            '<div class="um6p-eyebrow">Adoption Analytics  UM6P</div>',
+            unsafe_allow_html=True,
+        )
+        st.title("Vue densemble")
+        st.caption(
+            "Comprendre ladoption. Identifier ce qui compte. "
+            "Agir avec confiance."
+        )
+
+    with header_col2:
+        logo_path = ROOT / "assets" / "um6p_logo.png"
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=True)
+
+    if current_window is not None:
+        service_label = selected_service
+
+        st.caption(
+            f"{service_label}  "
+            f"{current_window.start_date.strftime('%d/%m/%Y')}  "
+            f"{current_window.end_date.strftime('%d/%m/%Y')}"
+        )
 
     dashboard_adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
 
-    st.markdown(
-        """
-        **Principe :** chaque application est affichée avec les mêmes champs et les mêmes KPI.  
-        Lorsqu'une donnée n'est pas disponible pour un service, elle est indiquée comme **Non renseigné** ou **Non calculable**.
-        """
+    metrics = dashboard_adoption_vm.metrics
+    previous_vm = dashboard_service.get_adoption_view(previous_usage)
+    previous_metrics = previous_vm.metrics
+
+    mau_change = compute_period_change(
+        metrics.get("mau"),
+        previous_metrics.get("mau") if previous_metrics else None,
     )
 
-    kpi_interpretation = prepare_kpi_interpretation(
-        dashboard_adoption_vm.metrics,
-        filtered_usage,
-    )
-    kpi_interpretation = add_recommendations_to_insight(
-        kpi_interpretation,
-        prepare_kpi_recommendations(dashboard_adoption_vm.metrics),
+    wau_change = compute_period_change(
+        metrics.get("wau"),
+        previous_metrics.get("wau") if previous_metrics else None,
     )
 
-    kpi_title_col, kpi_popover_col = st.columns(
-        [4, 1],
-        vertical_alignment="center",
+    dau_change = compute_period_change(
+        metrics.get("dau"),
+        previous_metrics.get("dau") if previous_metrics else None,
     )
 
-    with kpi_title_col:
-        st.subheader("Vue d’ensemble KPI")
+    frequency_change = compute_period_change(
+        metrics.get("avg_events_per_active_user"),
+        (
+            previous_metrics.get("avg_events_per_active_user")
+            if previous_metrics
+            else None
+        ),
+    )
 
-    with kpi_popover_col:
-        with st.popover("💡 Interprétation IA"):
-            render_interpretation_popover(kpi_interpretation)
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-    with st.container(horizontal=True):
-        st.metric("DAU", f"{dashboard_adoption_vm.metrics['dau']:,}", border=True)
-        st.metric("WAU", f"{dashboard_adoption_vm.metrics['wau']:,}", border=True)
-        st.metric("MAU", f"{dashboard_adoption_vm.metrics['mau']:,}", border=True)
+    def format_delta(value):
+        if value is None:
+            return None
+        return f"{value:+.1f} % vs période précédente"
+
+    with kpi1:
+        st.metric(
+            "MAU  Actifs 30 jours",
+            f"{int(metrics.get('mau', 0)):,}".replace(",", " "),
+            delta=format_delta(mau_change),
+        )
+
+    with kpi2:
+        st.metric(
+            "WAU  Actifs 7 jours",
+            f"{int(metrics.get('wau', 0)):,}".replace(",", " "),
+            delta=format_delta(wau_change),
+        )
+
+    with kpi3:
+        st.metric(
+            "DAU  Actifs du jour",
+            f"{int(metrics.get('dau', 0)):,}".replace(",", " "),
+            delta=format_delta(dau_change),
+        )
+
+    with kpi4:
         st.metric(
             "Fréquence moyenne",
-            f"{dashboard_adoption_vm.metrics['avg_events_per_active_user']:.1f}",
-            border=True,
+            f"{float(metrics.get('avg_events_per_active_user', 0)):.1f}",
+            delta=format_delta(frequency_change),
+        )
+
+    kpi_insight = prepare_kpi_interpretation(
+        metrics,
+        filtered_usage,
+    )
+
+    next_actions = prepare_kpi_recommendations(metrics)
+
+    st.markdown("### Insight stratégique")
+
+    st.markdown(
+        f'''
+        <div class="strategic-card">
+            <strong>Ce qui se passe</strong><br>
+            {kpi_insight.get("observation", "")}
+            <br><br>
+            <strong>Pourquoi cela compte</strong><br>
+            {kpi_insight.get("interpretation", "")}
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+    if next_actions:
+        actions_html = "".join(
+            f"<li>{action}</li>"
+            for action in next_actions[:3]
+        )
+
+        st.markdown(
+            f'''
+            <div class="next-action">
+                <strong>Next Actions</strong>
+                <ul>
+                    {actions_html}
+                </ul>
+            </div>
+            ''',
+            unsafe_allow_html=True,
         )
 
     advanced_kpis = compute_advanced_adoption_kpis(
@@ -1961,6 +2136,17 @@ with dashboard_tab:
     # ── Évolution de l’adoption ────────────────────────────────────────────────
 
     unified_trend = build_unified_adoption_trend(filtered_usage)
+
+    ecommerce_events = filtered_usage[
+        filtered_usage["service"].astype(str).str.lower().isin(["ecommerce demo", "matomo"])
+    ]
+    if not ecommerce_events.empty and "event_timestamp" in ecommerce_events.columns:
+        unique_days = pd.to_datetime(ecommerce_events["event_timestamp"], errors="coerce").dt.normalize().nunique()
+        if unique_days == 1:
+            st.info(
+                "Historique insuffisant pour analyser une tendance. "
+                "Une seule journée de données est actuellement disponible."
+            )
 
     with st.container(border=True):
         if unified_trend.empty:
@@ -2065,9 +2251,8 @@ with dashboard_tab:
             st.altair_chart(chart, width="stretch")
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
-    unified_entity_usage = prepare_unified_entity_usage_table(
-        dashboard_adoption_vm.departmental
-    )
+    dept_df = departmental_breakdown(filtered_usage)
+    unified_entity_usage = prepare_unified_entity_usage_table(dept_df)
 
     with st.container(border=True):
         entity_title_col, entity_interpretation_col = st.columns(
@@ -2076,7 +2261,7 @@ with dashboard_tab:
         )
 
         with entity_title_col:
-            st.subheader("Usage par entité / campus")
+            st.subheader("Usage observé par organisation")
 
         entity_usage_interpretation = prepare_entity_usage_interpretation(
             unified_entity_usage,
@@ -2097,8 +2282,16 @@ with dashboard_tab:
         )
 
         if unified_entity_usage.empty:
-            st.info("Aucune donnée disponible pour l’usage par entité ou campus.")
+            st.info("Aucune donnée disponible pour l’usage par organisation.")
         else:
+            meaningful_rows = unified_entity_usage[
+                unified_entity_usage["Entité / campus"] != "Non renseigné"
+            ]
+            
+            if meaningful_rows.empty:
+                st.info("Mapping organisationnel non disponible pour cette sélection.")
+            elif len(meaningful_rows) < len(unified_entity_usage):
+                st.info("Mapping partiel")
             st.dataframe(
                 unified_entity_usage,
                 hide_index=True,
@@ -2317,7 +2510,7 @@ with dashboard_tab:
         )
 
         with dq_title_col:
-            st.subheader("Données manquantes / Qualité des données")
+            st.subheader("Qualité des données")
 
         data_quality_interpretation = prepare_data_quality_interpretation(
             unified_data_quality,
@@ -2373,10 +2566,19 @@ with dashboard_tab:
                 },
             )
 
-            st.info(
-                "Le taux d’utilisation réel nécessite une population éligible par service. "
-                "L’adoption par entité ou campus nécessite aussi un mapping utilisateur vers organisation."
+            st.markdown(
+                """
+                <div class="data-quality-card">
+                    <strong>Méthodologie</strong><br>
+                    Le taux d’utilisation réel nécessite une population éligible par service. 
+                    L’adoption par entité ou campus nécessite aussi un mapping utilisateur vers organisation.
+                </div>
+                """,
+                unsafe_allow_html=True
             )
+
+    st.markdown("### Demandez à Adoption AI")
+    st.text_input("Posez votre question sur l'adoption...", key="adoption_ai_question")
 
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
 
