@@ -1986,167 +1986,188 @@ with dashboard_tab:
 
     dashboard_adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
 
-    metrics = dashboard_adoption_vm.metrics
-    previous_vm = dashboard_service.get_adoption_view(previous_usage)
-    previous_metrics = previous_vm.metrics
+    if selected_service == "Tous les services":
+        overview = dashboard_service.get_global_overview(filtered_usage, available_services)
+        
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        with kpi1:
+            st.metric("Services suivis", overview["services_suivis"])
+        with kpi2:
+            st.metric("Services avec données", overview["services_avec_donnees"])
+        with kpi3:
+            st.metric("Volume observé", f"{overview['volume_observe']:,}".replace(",", " "))
+        with kpi4:
+            st.metric("Fraîcheur", overview["fraicheur"])
+            
+        st.markdown(
+            "<p style='font-size: 0.9em; color: gray; font-style: italic;'>"
+            "Les utilisateurs ne sont pas agrégés entre services car les "
+            "sources ne garantissent pas une identité utilisateur commune. "
+            "Les KPI sont donc présentés séparément par service."
+            "</p>",
+            unsafe_allow_html=True
+        )
+        
+        if overview["table_data"]:
+            st.dataframe(pd.DataFrame(overview["table_data"]), hide_index=True)
+            
+    else:
 
-    mau_change = compute_period_change(
-        metrics.get("mau"),
-        previous_metrics.get("mau") if previous_metrics else None,
-    )
 
-    wau_change = compute_period_change(
-        metrics.get("wau"),
-        previous_metrics.get("wau") if previous_metrics else None,
-    )
+        metrics = dashboard_adoption_vm.metrics
+        previous_vm = dashboard_service.get_adoption_view(previous_usage)
+        previous_metrics = previous_vm.metrics
 
-    dau_change = compute_period_change(
-        metrics.get("dau"),
-        previous_metrics.get("dau") if previous_metrics else None,
-    )
-
-    frequency_change = compute_period_change(
-        metrics.get("avg_events_per_active_user"),
-        (
-            previous_metrics.get("avg_events_per_active_user")
-            if previous_metrics
-            else None
-        ),
-    )
-
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
-    def format_delta(value):
-        if value is None:
-            return None
-        return f"{value:+.1f} % vs période précédente"
-
-    with kpi1:
-        st.metric(
-            "MAU  Actifs 30 jours",
-            f"{int(metrics.get('mau', 0)):,}".replace(",", " "),
-            delta=format_delta(mau_change),
+        mau_change = compute_period_change(
+            metrics.get("mau"),
+            previous_metrics.get("mau") if previous_metrics else None,
         )
 
-    with kpi2:
-        st.metric(
-            "WAU  Actifs 7 jours",
-            f"{int(metrics.get('wau', 0)):,}".replace(",", " "),
-            delta=format_delta(wau_change),
+        wau_change = compute_period_change(
+            metrics.get("wau"),
+            previous_metrics.get("wau") if previous_metrics else None,
         )
 
-    with kpi3:
-        st.metric(
-            "DAU  Actifs du jour",
-            f"{int(metrics.get('dau', 0)):,}".replace(",", " "),
-            delta=format_delta(dau_change),
+        dau_change = compute_period_change(
+            metrics.get("dau"),
+            previous_metrics.get("dau") if previous_metrics else None,
         )
 
-    with kpi4:
-        st.metric(
-            "Fréquence moyenne",
-            f"{float(metrics.get('avg_events_per_active_user', 0)):.1f}",
-            delta=format_delta(frequency_change),
+        frequency_change = compute_period_change(
+            metrics.get("avg_events_per_active_user"),
+            (
+                previous_metrics.get("avg_events_per_active_user")
+                if previous_metrics
+                else None
+            ),
         )
 
-    kpi_insight = prepare_kpi_interpretation(
-        metrics,
-        filtered_usage,
-    )
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-    next_actions = prepare_kpi_recommendations(metrics)
+        def format_delta(value):
+            if value is None:
+                return None
+            return f"{value:+.1f} % vs période précédente"
 
-    st.markdown("### Insight stratégique")
+        with kpi1:
+            st.metric(
+                "MAU  Actifs 30 jours",
+                f"{int(metrics.get('mau', 0)):,}".replace(",", " "),
+                delta=format_delta(mau_change),
+            )
 
-    st.markdown(
-        f'''
-        <div class="strategic-card">
-            <strong>Ce qui se passe</strong><br>
-            {kpi_insight.get("observation", "")}
-            <br><br>
-            <strong>Pourquoi cela compte</strong><br>
-            {kpi_insight.get("interpretation", "")}
-        </div>
-        ''',
-        unsafe_allow_html=True,
-    )
+        with kpi2:
+            st.metric(
+                "WAU  Actifs 7 jours",
+                f"{int(metrics.get('wau', 0)):,}".replace(",", " "),
+                delta=format_delta(wau_change),
+            )
 
-    if next_actions:
-        actions_html = "".join(
-            f"<li>{action}</li>"
-            for action in next_actions[:3]
+        with kpi3:
+            st.metric(
+                "DAU  Actifs du jour",
+                f"{int(metrics.get('dau', 0)):,}".replace(",", " "),
+                delta=format_delta(dau_change),
+            )
+
+        with kpi4:
+            st.metric(
+                "Fréquence moyenne",
+                f"{float(metrics.get('avg_events_per_active_user', 0)):.1f}",
+                delta=format_delta(frequency_change),
+            )
+
+        kpi_insight = prepare_kpi_interpretation(
+            metrics,
+            filtered_usage,
         )
+
+        next_actions = prepare_kpi_recommendations(metrics)
+
+        st.markdown("### Insight stratégique")
 
         st.markdown(
             f'''
-            <div class="next-action">
-                <strong>Next Actions</strong>
-                <ul>
-                    {actions_html}
-                </ul>
+            <div class="strategic-card">
+                <strong>Ce qui se passe</strong><br>
+                {kpi_insight.get("observation", "")}
+                <br><br>
+                <strong>Pourquoi cela compte</strong><br>
+                {kpi_insight.get("interpretation", "")}
             </div>
             ''',
             unsafe_allow_html=True,
         )
 
-    advanced_kpis = compute_advanced_adoption_kpis(
-        dashboard_adoption_vm.metrics,
-    )
+        if next_actions:
+            actions_html = "".join(
+                f"<li>{action}</li>"
+                for action in next_actions[:3]
+            )
 
-    advanced_kpi_insight = prepare_advanced_kpis_interpretation(
-        advanced_kpis,
-        dashboard_adoption_vm.metrics,
-    )
-    advanced_kpi_insight = add_recommendations_to_insight(
-        advanced_kpi_insight,
-        prepare_advanced_kpi_recommendations(advanced_kpis),
-    )
+            st.markdown(
+                f'''
+                <div class="next-action">
+                    <strong>Next Actions</strong>
+                    <ul>
+                        {actions_html}
+                    </ul>
+                </div>
+                ''',
+                unsafe_allow_html=True,
+            )
 
-    advanced_title_col, advanced_insight_col = st.columns([4, 1])
+        advanced_kpis = compute_advanced_adoption_kpis(
+            dashboard_adoption_vm.metrics,
+        )
 
-    with advanced_title_col:
-        st.caption("Indicateurs dérivés de récurrence")
+        advanced_kpi_insight = prepare_advanced_kpis_interpretation(
+            advanced_kpis,
+            dashboard_adoption_vm.metrics,
+        )
+        advanced_kpi_insight = add_recommendations_to_insight(
+            advanced_kpi_insight,
+            prepare_advanced_kpi_recommendations(advanced_kpis),
+        )
 
-    with advanced_insight_col:
-        with st.popover("💡 Interprétation IA"):
-            render_interpretation_popover(advanced_kpi_insight)
+        advanced_title_col, advanced_insight_col = st.columns([4, 1])
+
+        with advanced_title_col:
+            st.caption("Indicateurs dérivés de récurrence")
+
+        with advanced_insight_col:
+            with st.popover("💡 Interprétation IA"):
+                render_interpretation_popover(advanced_kpi_insight)
     
-    with st.container(horizontal=True):
-        st.metric(
-            "Stickiness DAU/MAU",
-            format_optional_percentage(
-                advanced_kpis["stickiness_dau_mau"],
-            ),
-            border=True,
-        )
+        with st.container(horizontal=True):
+            st.metric(
+                "Stickiness DAU/MAU",
+                format_optional_percentage(
+                    advanced_kpis["stickiness_dau_mau"],
+                ),
+                border=True,
+            )
 
-        st.metric(
-            "Récurrence WAU/MAU",
-            format_optional_percentage(
-                advanced_kpis["weekly_recurrence_wau_mau"],
-            ),
-            border=True,
-        )
+            st.metric(
+                "Récurrence WAU/MAU",
+                format_optional_percentage(
+                    advanced_kpis["weekly_recurrence_wau_mau"],
+                ),
+                border=True,
+            )
 
-    st.info(
-        "Le taux d’utilisation réel nécessite la population éligible par service. "
-        "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
-    )
+        st.info(
+            "Le taux d’utilisation réel nécessite la population éligible par service. "
+            "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
+        )
 
     # ── Évolution de l’adoption ────────────────────────────────────────────────
 
     unified_trend = build_unified_adoption_trend(filtered_usage)
 
-    ecommerce_events = filtered_usage[
-        filtered_usage["service"].astype(str).str.lower().isin(["ecommerce demo", "matomo"])
-    ]
-    if not ecommerce_events.empty and "event_timestamp" in ecommerce_events.columns:
-        unique_days = pd.to_datetime(ecommerce_events["event_timestamp"], errors="coerce").dt.normalize().nunique()
-        if unique_days == 1:
-            st.info(
-                "Historique insuffisant pour analyser une tendance. "
-                "Une seule journée de données est actuellement disponible."
-            )
+    trend_warning = dashboard_service.get_trend_warning_message(filtered_usage, selected_service)
+    if trend_warning:
+        st.info(trend_warning)
 
     with st.container(border=True):
         if unified_trend.empty:

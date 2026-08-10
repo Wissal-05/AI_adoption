@@ -91,6 +91,44 @@ class DashboardService:
             alerts=build_usage_drop_alerts(filtered_usage),
         )
 
+    def get_global_overview(self, filtered_usage: pd.DataFrame, available_services: list[str]) -> dict:
+        """Calcule les synthèses globales pour 'Tous les services'."""
+        services_suivis = len(available_services)
+        services_avec_donnees = filtered_usage["service"].nunique() if not filtered_usage.empty else 0
+        volume_observe = len(filtered_usage)
+
+        fraicheur = "N/A"
+        if not filtered_usage.empty:
+            max_dates = filtered_usage.groupby("service")["event_timestamp"].max()
+            if max_dates.nunique() > 1:
+                fraicheur = "Hétérogène"
+            else:
+                max_d = max_dates.max()
+                fraicheur = max_d.strftime("%d/%m/%Y") if pd.notnull(max_d) else "N/A"
+        
+        table_data = []
+        for srv in available_services:
+            srv_df = filtered_usage[filtered_usage["service"] == srv].copy()
+            if not srv_df.empty:
+                metrics = AdoptionMetricsService.compute(srv_df)
+                max_date = srv_df["event_timestamp"].max()
+                table_data.append({
+                    "Service": srv,
+                    "DAU": int(metrics.get("dau", 0) or 0),
+                    "WAU": int(metrics.get("wau", 0) or 0),
+                    "MAU": int(metrics.get("mau", 0) or 0),
+                    "Fréquence": round(float(metrics.get("avg_events_per_active_user", 0) or 0), 1),
+                    "Dernière donnée disponible": max_date.strftime("%d/%m/%Y") if pd.notnull(max_date) else "N/A"
+                })
+                
+        return {
+            "services_suivis": services_suivis,
+            "services_avec_donnees": services_avec_donnees,
+            "volume_observe": volume_observe,
+            "fraicheur": fraicheur,
+            "table_data": table_data
+        }
+
     def get_learning_center_view(self) -> LearningCenterViewModel:
         """Agrège les données source-spécifiques Learning Center pour l'UI."""
         daily_kpis = self.data.learning_center_daily
@@ -123,6 +161,28 @@ class DashboardService:
             source_dir=self.data.learning_center_source_dir,
         )
     
+    def get_trend_warning_message(self, filtered_usage: pd.DataFrame, selected_service: str) -> str | None:
+        """Détermine le message d'avertissement d'historique pour les graphiques de tendance."""
+        if selected_service == "Tous les services":
+            if not filtered_usage.empty and "event_timestamp" in filtered_usage.columns:
+                max_dates = filtered_usage.groupby("service")["event_timestamp"].max().dt.normalize()
+                min_dates = filtered_usage.groupby("service")["event_timestamp"].min().dt.normalize()
+                if max_dates.nunique() > 1 or min_dates.nunique() > 1:
+                    return (
+                        "Les périodes disponibles diffèrent selon les services. "
+                        "Consultez la dernière date disponible de chaque service "
+                        "pour interpréter les tendances."
+                    )
+        else:
+            if not filtered_usage.empty and "event_timestamp" in filtered_usage.columns:
+                unique_days = pd.to_datetime(filtered_usage["event_timestamp"], errors="coerce").dt.normalize().nunique()
+                if unique_days == 1:
+                    return (
+                        "Historique insuffisant pour analyser une tendance. "
+                        "Une seule journée de données est actuellement disponible."
+                    )
+        return None
+
     def get_available_sources(self) -> list[str]:
         """Retourne la liste des sources de données effectivement chargées."""
         return self.data.available_sources
