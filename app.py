@@ -1288,6 +1288,35 @@ else:
         current_window,
     )
 
+    if selected_service == "Tous les services" and selected_period == "Dernière date disponible":
+        period_info = "Période propre à chaque service"
+    elif selected_service == "Tous les services" and selected_period == "Toute la période disponible":
+        period_info = "Périodes disponibles différentes selon les services"
+    elif selected_period == "Dernière date disponible":
+        period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
+    elif current_window.start_date == current_window.end_date:
+        period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
+    else:
+        period_info = f"{current_window.start_date.strftime('%d/%m/%Y')} — {current_window.end_date.strftime('%d/%m/%Y')}"
+        
+    st.caption(f"**Période utilisée :** {period_info}")
+    
+    if filtered_usage.empty:
+        if selected_service != "Tous les services":
+            st.warning(f"Aucune donnée disponible pour {selected_service} sur la période sélectionnée. Dernière donnée disponible : {available_end.strftime('%d/%m/%Y')}.")
+        else:
+            st.warning("Aucune donnée disponible pour les services sur la période sélectionnée.")
+
+if current_window is not None and current_window.label not in ("Toute la période disponible", "Dernière date disponible"):
+    kpi_reference_date = current_window.end_date
+else:
+    kpi_reference_date = None
+
+if selected_period == "Dernière date disponible":
+    kpi_usage = service_usage.copy()
+else:
+    kpi_usage = filtered_usage
+
 previous_usage = pd.DataFrame()
 
 if current_window is not None:
@@ -1984,10 +2013,19 @@ with dashboard_tab:
             f"{current_window.end_date.strftime('%d/%m/%Y')}"
         )
 
-    dashboard_adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
+    dashboard_adoption_vm = dashboard_service.get_adoption_view(
+        filtered_usage, 
+        reference_date=kpi_reference_date,
+        kpi_usage=kpi_usage
+    )
 
     if selected_service == "Tous les services":
-        overview = dashboard_service.get_global_overview(filtered_usage, available_services)
+        overview = dashboard_service.get_global_overview(
+            filtered_usage, 
+            available_services, 
+            reference_date=kpi_reference_date,
+            kpi_usage=kpi_usage
+        )
         
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         with kpi1:
@@ -2042,131 +2080,134 @@ with dashboard_tab:
             ),
         )
 
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        has_data = not filtered_usage.empty
 
         def format_delta(value):
             if value is None:
                 return None
             return f"{value:+.1f} % vs période précédente"
 
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        
         with kpi1:
             st.metric(
                 "MAU  Actifs 30 jours",
-                f"{int(metrics.get('mau', 0)):,}".replace(",", " "),
-                delta=format_delta(mau_change),
+                f"{int(metrics.get('mau', 0)):,}".replace(",", " ") if has_data else "Non disponible",
+                delta=format_delta(mau_change) if has_data else None,
             )
 
         with kpi2:
             st.metric(
                 "WAU  Actifs 7 jours",
-                f"{int(metrics.get('wau', 0)):,}".replace(",", " "),
-                delta=format_delta(wau_change),
+                f"{int(metrics.get('wau', 0)):,}".replace(",", " ") if has_data else "Non disponible",
+                delta=format_delta(wau_change) if has_data else None,
             )
 
         with kpi3:
             st.metric(
                 "DAU  Actifs du jour",
-                f"{int(metrics.get('dau', 0)):,}".replace(",", " "),
-                delta=format_delta(dau_change),
+                f"{int(metrics.get('dau', 0)):,}".replace(",", " ") if has_data else "Non disponible",
+                delta=format_delta(dau_change) if has_data else None,
             )
 
         with kpi4:
             st.metric(
                 "Fréquence moyenne",
-                f"{float(metrics.get('avg_events_per_active_user', 0)):.1f}",
-                delta=format_delta(frequency_change),
+                f"{float(metrics.get('avg_events_per_active_user', 0)):.1f}" if has_data else "Non disponible",
+                delta=format_delta(frequency_change) if has_data else None,
             )
 
-        kpi_insight = prepare_kpi_interpretation(
-            metrics,
-            filtered_usage,
-        )
-
-        next_actions = prepare_kpi_recommendations(metrics)
-
-        st.markdown("### Insight stratégique")
-
-        st.markdown(
-            f'''
-            <div class="strategic-card">
-                <strong>Ce qui se passe</strong><br>
-                {kpi_insight.get("observation", "")}
-                <br><br>
-                <strong>Pourquoi cela compte</strong><br>
-                {kpi_insight.get("interpretation", "")}
-            </div>
-            ''',
-            unsafe_allow_html=True,
-        )
-
-        if next_actions:
-            actions_html = "".join(
-                f"<li>{action}</li>"
-                for action in next_actions[:3]
+        if has_data:
+            kpi_insight = prepare_kpi_interpretation(
+                metrics,
+                filtered_usage,
             )
+
+            next_actions = prepare_kpi_recommendations(metrics)
+
+            st.markdown("### Insight stratégique")
 
             st.markdown(
                 f'''
-                <div class="next-action">
-                    <strong>Next Actions</strong>
-                    <ul>
-                        {actions_html}
-                    </ul>
+                <div class="strategic-card">
+                    <strong>Ce qui se passe</strong><br>
+                    {kpi_insight.get("observation", "")}
+                    <br><br>
+                    <strong>Pourquoi cela compte</strong><br>
+                    {kpi_insight.get("interpretation", "")}
                 </div>
                 ''',
                 unsafe_allow_html=True,
             )
 
-        advanced_kpis = compute_advanced_adoption_kpis(
-            dashboard_adoption_vm.metrics,
-        )
+            if next_actions:
+                actions_html = "".join(
+                    f"<li>{action}</li>"
+                    for action in next_actions[:3]
+                )
 
-        advanced_kpi_insight = prepare_advanced_kpis_interpretation(
-            advanced_kpis,
-            dashboard_adoption_vm.metrics,
-        )
-        advanced_kpi_insight = add_recommendations_to_insight(
-            advanced_kpi_insight,
-            prepare_advanced_kpi_recommendations(advanced_kpis),
-        )
+                st.markdown(
+                    f'''
+                    <div class="next-action">
+                        <strong>Next Actions</strong>
+                        <ul>
+                            {actions_html}
+                        </ul>
+                    </div>
+                    ''',
+                    unsafe_allow_html=True,
+                )
 
-        advanced_title_col, advanced_insight_col = st.columns([4, 1])
-
-        with advanced_title_col:
-            st.caption("Indicateurs dérivés de récurrence")
-
-        with advanced_insight_col:
-            with st.popover("💡 Interprétation IA"):
-                render_interpretation_popover(advanced_kpi_insight)
-    
-        with st.container(horizontal=True):
-            st.metric(
-                "Stickiness DAU/MAU",
-                format_optional_percentage(
-                    advanced_kpis["stickiness_dau_mau"],
-                ),
-                border=True,
+            advanced_kpis = compute_advanced_adoption_kpis(
+                dashboard_adoption_vm.metrics,
             )
 
-            st.metric(
-                "Récurrence WAU/MAU",
-                format_optional_percentage(
-                    advanced_kpis["weekly_recurrence_wau_mau"],
-                ),
-                border=True,
+            advanced_kpi_insight = prepare_advanced_kpis_interpretation(
+                advanced_kpis,
+                dashboard_adoption_vm.metrics,
+            )
+            advanced_kpi_insight = add_recommendations_to_insight(
+                advanced_kpi_insight,
+                prepare_advanced_kpi_recommendations(advanced_kpis),
             )
 
-        st.info(
-            "Le taux d’utilisation réel nécessite la population éligible par service. "
-            "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
-        )
+            advanced_title_col, advanced_insight_col = st.columns([4, 1])
+
+            with advanced_title_col:
+                st.caption("Indicateurs dérivés de récurrence")
+
+            with advanced_insight_col:
+                with st.popover("💡 Interprétation IA"):
+                    render_interpretation_popover(advanced_kpi_insight)
+        
+            with st.container(horizontal=True):
+                st.metric(
+                    "Stickiness DAU/MAU",
+                    format_optional_percentage(
+                        advanced_kpis["stickiness_dau_mau"],
+                    ),
+                    border=True,
+                )
+
+                st.metric(
+                    "Récurrence WAU/MAU",
+                    format_optional_percentage(
+                        advanced_kpis["weekly_recurrence_wau_mau"],
+                    ),
+                    border=True,
+                )
+
+            st.info(
+                "Le taux d’utilisation réel nécessite la population éligible par service. "
+                "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
+            )
 
     # ── Évolution de l’adoption ────────────────────────────────────────────────
 
     unified_trend = build_unified_adoption_trend(filtered_usage)
 
     trend_warning = dashboard_service.get_trend_warning_message(filtered_usage, selected_service)
-    if trend_warning:
+    if trend_warning and selected_period != "Dernière date disponible":
         st.info(trend_warning)
 
     with st.container(border=True):
@@ -2190,6 +2231,8 @@ with dashboard_tab:
                 "Fréquence": "frequency",
             }
 
+            is_all_services_view = (selected_service == "Tous les services")
+
             evolution_title_col, metric_popover_col, interpretation_popover_col = st.columns(
                 [3, 1, 1],
                 vertical_alignment="center",
@@ -2200,7 +2243,7 @@ with dashboard_tab:
 
             with metric_popover_col:
                 with st.popover("Choisir métriques"):
-                    selected_service = st.selectbox(
+                    trend_selected_service = st.selectbox(
                         "Service",
                         ["Tous les services", *available_services],
                         key="unified_trend_service",
@@ -2216,7 +2259,7 @@ with dashboard_tab:
 
             evolution_interpretation = prepare_evolution_interpretation(
                 unified_trend,
-                selected_service,
+                trend_selected_service,
                 selected_metric_label,
                 selected_kpi,
             )
@@ -2225,7 +2268,7 @@ with dashboard_tab:
                 prepare_evolution_recommendations(
                     evolution_data=unified_trend,
                     selected_metric=selected_metric_label,
-                    selected_service=selected_service,
+                    selected_service=trend_selected_service,
                 ),
             )
 
@@ -2235,41 +2278,52 @@ with dashboard_tab:
 
             trend_to_display = unified_trend.copy()
 
-            if selected_service != "Tous les services":
+            if trend_selected_service != "Tous les services":
                 trend_to_display = trend_to_display[
-                    trend_to_display["service"] == selected_service
+                    trend_to_display["service"] == trend_selected_service
                 ]
 
-            chart = (
-                alt.Chart(trend_to_display)
-                .mark_line(point=True, strokeWidth=2.5)
-                .encode(
-                    x=alt.X("date:T", title=""),
-                    y=alt.Y(f"{selected_kpi}:Q", title=selected_kpi),
-                    color=alt.Color(
-                        "service:N",
-                        title=None,
-                        scale=alt.Scale(
-                            domain=["Booking", "Learning Center", "Ecommerce Demo"],
-                            range=["#1f77d0", "#ff8a00", "#2ca02c"],
+            if selected_period == "Dernière date disponible":
+                if is_all_services_view:
+                    st.info(
+                        "Le graphique d'évolution n'est pas affiché car la dernière "
+                        "date disponible varie selon les services.\n"
+                        "Afficher une évolution combinée serait incohérent."
+                    )
+                else:
+                    st.info("Une seule journée est sélectionnée.\n"
+                            "Une tendance temporelle ne peut pas être analysée.")
+            else:
+                chart = (
+                    alt.Chart(trend_to_display)
+                    .mark_line(point=True, strokeWidth=2.5)
+                    .encode(
+                        x=alt.X("date:T", title=""),
+                        y=alt.Y(f"{selected_kpi}:Q", title=selected_kpi),
+                        color=alt.Color(
+                            "service:N",
+                            title=None,
+                            scale=alt.Scale(
+                                domain=["Booking", "Learning Center", "Ecommerce Demo"],
+                                range=["#1f77d0", "#ff8a00", "#2ca02c"],
+                            ),
+                            legend=alt.Legend(
+                                orient="bottom",
+                                direction="horizontal",
+                                labelFontSize=14,
+                                symbolSize=120,
+                            ),
                         ),
-                        legend=alt.Legend(
-                            orient="bottom",
-                            direction="horizontal",
-                            labelFontSize=14,
-                            symbolSize=120,
-                        ),
-                    ),
-                    tooltip=[
-                        alt.Tooltip("date:T", title="Date"),
-                        alt.Tooltip("service:N", title="Service"),
-                        alt.Tooltip(f"{selected_kpi}:Q", title=selected_metric_label),
-                    ],
+                        tooltip=[
+                            alt.Tooltip("date:T", title="Date"),
+                            alt.Tooltip("service:N", title="Service"),
+                            alt.Tooltip(f"{selected_kpi}:Q", title=selected_metric_label),
+                        ],
+                    )
+                    .properties(height=360)
                 )
-                .properties(height=360)
-            )
 
-            st.altair_chart(chart, width="stretch")
+                st.altair_chart(chart, width="stretch")
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
     dept_df = departmental_breakdown(filtered_usage)
@@ -2338,9 +2392,15 @@ with dashboard_tab:
             )
     # ── Top interactions ──────────────────────────────────────────────────────
 
+    if current_window is not None and data.web_logs is not None and not data.web_logs.empty:
+        web_logs_ts_col = "timestamp" if "timestamp" in data.web_logs.columns else "event_timestamp"
+        filtered_web_logs = apply_date_filter(data.web_logs, current_window, timestamp_column=web_logs_ts_col)
+    else:
+        filtered_web_logs = data.web_logs
+
     unified_top_interactions = prepare_unified_top_interactions_table(
         filtered_usage,
-        web_logs_df=data.web_logs,
+        web_logs_df=filtered_web_logs,
         top_n=15,
     )
 

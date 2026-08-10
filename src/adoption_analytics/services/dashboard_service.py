@@ -79,10 +79,12 @@ class DashboardService:
             raise RuntimeError("Appelez load() avant d'accéder aux données.")
         return self._data
 
-    def get_adoption_view(self, filtered_usage: pd.DataFrame) -> AdoptionViewModel:
+    def get_adoption_view(self, filtered_usage: pd.DataFrame, reference_date: pd.Timestamp | None = None, kpi_usage: pd.DataFrame | None = None) -> AdoptionViewModel:
         """Calcule toutes les métriques d'adoption pour un DataFrame filtré."""
+        if kpi_usage is None:
+            kpi_usage = filtered_usage
         return AdoptionViewModel(
-            metrics=AdoptionMetricsService.compute(filtered_usage),
+            metrics=AdoptionMetricsService.compute(kpi_usage, reference_date=reference_date),
             timeseries=adoption_timeseries(filtered_usage),
             departmental=departmental_breakdown(filtered_usage),
             underused=find_underused_services(filtered_usage),
@@ -91,8 +93,10 @@ class DashboardService:
             alerts=build_usage_drop_alerts(filtered_usage),
         )
 
-    def get_global_overview(self, filtered_usage: pd.DataFrame, available_services: list[str]) -> dict:
+    def get_global_overview(self, filtered_usage: pd.DataFrame, available_services: list[str], reference_date: pd.Timestamp | None = None, kpi_usage: pd.DataFrame | None = None) -> dict:
         """Calcule les synthèses globales pour 'Tous les services'."""
+        if kpi_usage is None:
+            kpi_usage = filtered_usage
         services_suivis = len(available_services)
         services_avec_donnees = filtered_usage["service"].nunique() if not filtered_usage.empty else 0
         volume_observe = len(filtered_usage)
@@ -109,8 +113,9 @@ class DashboardService:
         table_data = []
         for srv in available_services:
             srv_df = filtered_usage[filtered_usage["service"] == srv].copy()
+            srv_kpi_df = kpi_usage[kpi_usage["service"] == srv].copy()
             if not srv_df.empty:
-                metrics = AdoptionMetricsService.compute(srv_df)
+                metrics = AdoptionMetricsService.compute(srv_kpi_df, reference_date=reference_date)
                 max_date = srv_df["event_timestamp"].max()
                 table_data.append({
                     "Service": srv,

@@ -30,7 +30,7 @@ def test_toute_la_periode(sample_df):
 
 def test_7_derniers_jours(sample_df):
     start, end = get_available_date_bounds(sample_df)
-    window = resolve_period("7 derniers jours", start, end)
+    window = resolve_period("7 derniers jours", start, end, today_date=pd.Timestamp("2023-11-30"))
     assert window.end_date == pd.Timestamp("2023-11-30")
     # 2023-11-30 - 6 days = 2023-11-24
     assert window.start_date == pd.Timestamp("2023-11-24")
@@ -38,7 +38,7 @@ def test_7_derniers_jours(sample_df):
 
 def test_30_derniers_jours(sample_df):
     start, end = get_available_date_bounds(sample_df)
-    window = resolve_period("30 derniers jours", start, end)
+    window = resolve_period("30 derniers jours", start, end, today_date=pd.Timestamp("2023-11-30"))
     assert window.end_date == pd.Timestamp("2023-11-30")
     # 2023-11-30 - 29 days = 2023-11-01
     assert window.start_date == pd.Timestamp("2023-11-01")
@@ -46,10 +46,9 @@ def test_30_derniers_jours(sample_df):
 
 def test_60_derniers_jours(sample_df):
     start, end = get_available_date_bounds(sample_df)
-    window = resolve_period("60 derniers jours", start, end)
+    window = resolve_period("60 derniers jours", start, end, today_date=pd.Timestamp("2023-11-30"))
     assert window.end_date == pd.Timestamp("2023-11-30")
-    # 2023-11-30 - 59 days = 2023-10-02 -> But wait! 'start' cannot be before available_start. 
-    # The max logic is applied: max(2023-10-02, 2023-10-01) = 2023-10-02.
+    # 2023-11-30 - 59 days = 2023-10-02
     assert window.start_date == pd.Timestamp("2023-10-02")
 
 
@@ -78,11 +77,43 @@ def test_date_debut_sup_date_fin(sample_df):
 
 def test_filtre_dataframe(sample_df):
     start, end = get_available_date_bounds(sample_df)
-    window = resolve_period("30 derniers jours", start, end)
+    window = resolve_period("30 derniers jours", start, end, today_date=pd.Timestamp("2023-11-30"))
     # Window is 2023-11-01 to 2023-11-30
     filtered_df = apply_date_filter(sample_df, window)
     assert len(filtered_df) == 3
     assert filtered_df["value"].tolist() == [30, 40, 50]
+
+def test_aujourdhui(sample_df):
+    start, end = get_available_date_bounds(sample_df)
+    window = resolve_period("Aujourd'hui", start, end, today_date=pd.Timestamp("2023-11-30"))
+    assert window.start_date == pd.Timestamp("2023-11-30")
+    assert window.end_date == pd.Timestamp("2023-11-30")
+
+def test_derniere_date_disponible():
+    df = pd.DataFrame({
+        "event_timestamp": pd.to_datetime(["2023-10-01", "2023-10-15"]),
+        "value": [10, 20]
+    })
+    start, end = get_available_date_bounds(df)
+    window = resolve_period("Dernière date disponible", start, end)
+    filtered = apply_date_filter(df, window)
+    assert len(filtered) == 1
+    assert filtered.iloc[0]["value"] == 20
+
+def test_derniere_date_disponible_multiservice():
+    df = pd.DataFrame({
+        "event_timestamp": pd.to_datetime([
+            "2023-10-01", "2023-10-15",
+            "2023-10-05", "2023-10-20"
+        ]),
+        "service": ["A", "A", "B", "B"],
+        "value": [10, 20, 30, 40]
+    })
+    start, end = get_available_date_bounds(df)
+    window = resolve_period("Dernière date disponible", start, end)
+    filtered = apply_date_filter(df, window)
+    assert len(filtered) == 2
+    assert set(filtered["value"].tolist()) == {20, 40}
 
 
 def test_previous_window():

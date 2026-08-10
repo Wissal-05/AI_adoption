@@ -15,7 +15,7 @@ class DateWindow:
 
 PERIOD_OPTIONS = [
     "Toute la période disponible",
-    "Aujourdhui",
+    "Aujourd'hui",
     "Hier",
     "7 derniers jours",
     "30 derniers jours",
@@ -23,6 +23,7 @@ PERIOD_OPTIONS = [
     "Cette semaine",
     "Ce mois",
     "Période personnalisée",
+    "Dernière date disponible",
 ]
 
 
@@ -51,46 +52,50 @@ def resolve_period(
     available_end: pd.Timestamp,
     custom_start: date | pd.Timestamp | None = None,
     custom_end: date | pd.Timestamp | None = None,
+    today_date: pd.Timestamp | None = None,
 ) -> DateWindow:
     if available_start is None or available_end is None:
         raise ValueError("Aucune période disponible.")
 
     available_start = _normalize_date(available_start)
     available_end = _normalize_date(available_end)
-
-    reference_date = available_end
+    
+    if today_date is None:
+        today_date = pd.Timestamp.today().normalize()
+    else:
+        today_date = _normalize_date(today_date)
 
     if period_label == "Toute la période disponible":
         start = available_start
         end = available_end
 
-    elif period_label == "Aujourdhui":
-        start = reference_date
-        end = reference_date
+    elif period_label == "Aujourd'hui":
+        start = today_date
+        end = today_date
 
     elif period_label == "Hier":
-        start = reference_date - pd.Timedelta(days=1)
+        start = today_date - pd.Timedelta(days=1)
         end = start
 
     elif period_label == "7 derniers jours":
-        end = reference_date
+        end = today_date
         start = end - pd.Timedelta(days=6)
 
     elif period_label == "30 derniers jours":
-        end = reference_date
+        end = today_date
         start = end - pd.Timedelta(days=29)
 
     elif period_label == "60 derniers jours":
-        end = reference_date
+        end = today_date
         start = end - pd.Timedelta(days=59)
 
     elif period_label == "Cette semaine":
-        end = reference_date
+        end = today_date
         start = end - pd.Timedelta(days=end.weekday())
 
     elif period_label == "Ce mois":
-        end = reference_date
-        start = reference_date.replace(day=1)
+        end = today_date
+        start = today_date.replace(day=1)
 
     elif period_label == "Période personnalisée":
         if custom_start is None or custom_end is None:
@@ -101,13 +106,17 @@ def resolve_period(
 
         if start > end:
             raise ValueError("La date de début doit précéder la date de fin.")
+            
+    elif period_label == "Dernière date disponible":
+        start = available_end
+        end = available_end
 
     else:
         raise ValueError(f"Période inconnue : {period_label}")
 
-    # Ne jamais demander une période en dehors des données connues.
-    start = max(start, available_start)
-    end = min(end, available_end)
+    if period_label == "Toute la période disponible":
+        start = max(start, available_start)
+        end = min(end, available_end)
 
     return DateWindow(
         start_date=start,
@@ -125,11 +134,18 @@ def apply_date_filter(
         return df.copy()
 
     result = df.copy()
+    timestamps = pd.to_datetime(result[timestamp_column], errors="coerce")
 
-    timestamps = pd.to_datetime(
-        result[timestamp_column],
-        errors="coerce",
-    )
+    if window.label == "Dernière date disponible":
+        if "service" in result.columns:
+            normalized_ts = timestamps.dt.normalize()
+            max_dates = normalized_ts.groupby(result['service']).transform('max')
+            mask = normalized_ts == max_dates
+            return result.loc[mask].copy()
+        else:
+            max_date = timestamps.dt.normalize().max()
+            mask = timestamps.dt.normalize() == max_date
+            return result.loc[mask].copy()
 
     mask = (
         timestamps.dt.normalize().ge(window.start_date)
