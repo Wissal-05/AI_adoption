@@ -1248,122 +1248,13 @@ elif selected_tab == "Booking":
 elif selected_tab == "Assistant IA":
     st.caption("Métriques d'utilisation de l'assistant intelligent.")
 
-# ── Filtres Globaux ────────────────────────────────────────────────────────────
-with st.container(border=True):
-    control_service, control_period = st.columns([1, 1])
-    
-    with control_service:
-        selected_service = st.selectbox(
-            "Service",
-            ["Tous les services"] + available_services,
-            index=0,
-            key="global_service_filter",
-        )
-
-    # Le service pilote le dataset servant à déterminer la période disponible.
-    if selected_service == "Tous les services":
-        service_usage = data.usage_events.copy()
-    else:
-        service_usage = data.usage_events[
-            data.usage_events["service"].astype(str).eq(selected_service)
-        ].copy()
-
-    available_start, available_end = get_available_date_bounds(service_usage)
-
-    with control_period:
-        selected_period = st.selectbox(
-            "Période",
-            PERIOD_OPTIONS,
-            index=0,
-            key="global_period_filter",
-        )
-
-    custom_start = None
-    custom_end = None
-
-    if (
-        selected_period == "Période personnalisée"
-        and available_start is not None
-        and available_end is not None
-    ):
-        custom_col1, custom_col2 = st.columns(2)
-
-        with custom_col1:
-            custom_start = st.date_input(
-                "Du",
-                value=available_start.date(),
-                min_value=available_start.date(),
-                max_value=available_end.date(),
-                key="custom_start_date",
-            )
-
-        with custom_col2:
-            custom_end = st.date_input(
-                "Au",
-                value=available_end.date(),
-                min_value=available_start.date(),
-                max_value=available_end.date(),
-                key="custom_end_date",
-            )
-
-if available_start is None or available_end is None:
-    st.warning("Aucune donnée datée disponible avec cette sélection.")
-    filtered_usage = service_usage.iloc[0:0].copy()
-    current_window = None
-
-else:
-    current_window = resolve_period(
-        selected_period,
-        available_start,
-        available_end,
-        custom_start=custom_start,
-        custom_end=custom_end,
-    )
-
-    filtered_usage = apply_date_filter(
-        service_usage,
-        current_window,
-    )
-
-    if selected_service == "Tous les services" and selected_period == "Dernière date disponible":
-        period_info = "Période propre à chaque service"
-    elif selected_service == "Tous les services" and selected_period == "Toute la période disponible":
-        period_info = "Périodes disponibles différentes selon les services"
-    elif selected_period == "Dernière date disponible":
-        period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
-    elif current_window.start_date == current_window.end_date:
-        period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
-    else:
-        period_info = f"{current_window.start_date.strftime('%d/%m/%Y')} — {current_window.end_date.strftime('%d/%m/%Y')}"
-        
-    st.caption(f"**Période utilisée :** {period_info}")
-    
-    if filtered_usage.empty:
-        if selected_service != "Tous les services":
-            st.warning(f"Aucune donnée disponible pour {selected_service} sur la période sélectionnée. Dernière donnée disponible : {available_end.strftime('%d/%m/%Y')}.")
-        else:
-            st.warning("Aucune donnée disponible pour les services sur la période sélectionnée.")
-
-if current_window is not None and current_window.label not in ("Toute la période disponible", "Dernière date disponible"):
-    kpi_reference_date = current_window.end_date
-else:
-    kpi_reference_date = None
-
-if selected_period == "Dernière date disponible":
-    kpi_usage = service_usage.copy()
-else:
-    kpi_usage = filtered_usage
-
+# ── Variables globales par défaut ──────────────────────────────────────────────
+selected_service = "Tous les services"
+selected_period = "Toute la période disponible"
+filtered_usage = data.usage_events.copy()
+current_window = None
+kpi_usage = filtered_usage
 previous_usage = pd.DataFrame()
-
-if current_window is not None:
-    previous_window = get_previous_window(current_window)
-
-    previous_usage = apply_date_filter(
-        service_usage,
-        previous_window,
-    )
-
 
 def prepare_evolution_interpretation(
     trend_df: pd.DataFrame,
@@ -2017,6 +1908,197 @@ def prepare_data_quality_interpretation(data_quality_df: pd.DataFrame) -> dict:
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
 if selected_tab == "Vue d'ensemble":
+    # ── Filtres Globaux ────────────────────────────────────────────────────────────
+    with st.container(border=True):
+        control_service, control_period = st.columns([1, 1])
+    
+        with control_service:
+            selected_service = st.selectbox(
+                "Service",
+                ["Tous les services"] + available_services,
+                index=0,
+                key="global_service_filter",
+            )
+
+        # Le service pilote le dataset servant à déterminer la période disponible.
+        if selected_service == "Tous les services":
+            service_usage = data.usage_events.copy()
+        else:
+            service_usage = data.usage_events[
+                data.usage_events["service"].astype(str).eq(selected_service)
+            ].copy()
+
+        available_start, available_end = get_available_date_bounds(service_usage)
+
+        with control_period:
+            selected_period = st.selectbox(
+                "Période",
+                PERIOD_OPTIONS,
+                index=0,
+                key="global_period_filter",
+            )
+
+        custom_start = None
+        custom_end = None
+
+        if (
+            selected_period == "Période personnalisée"
+            and available_start is not None
+            and available_end is not None
+        ):
+            custom_col1, custom_col2 = st.columns(2)
+
+            with custom_col1:
+                custom_start = st.date_input(
+                    "Du",
+                    value=available_start.date(),
+                    min_value=available_start.date(),
+                    max_value=available_end.date(),
+                    key="custom_start_date",
+                )
+
+            with custom_col2:
+                custom_end = st.date_input(
+                    "Au",
+                    value=available_end.date(),
+                    min_value=available_start.date(),
+                    max_value=available_end.date(),
+                    key="custom_end_date",
+                )
+
+    if available_start is None or available_end is None:
+        st.warning("Aucune donnée datée disponible avec cette sélection.")
+        filtered_usage = service_usage.iloc[0:0].copy()
+        current_window = None
+
+    else:
+        current_window = resolve_period(
+            selected_period,
+            available_start,
+            available_end,
+            custom_start=custom_start,
+            custom_end=custom_end,
+        )
+
+        filtered_usage = apply_date_filter(
+            service_usage,
+            current_window,
+        )
+
+        if selected_service == "Tous les services" and selected_period == "Dernière date disponible":
+            period_info = "Période propre à chaque service"
+        elif selected_service == "Tous les services" and selected_period == "Toute la période disponible":
+            period_info = "Périodes disponibles différentes selon les services"
+        elif selected_period == "Dernière date disponible":
+            period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
+        elif current_window.start_date == current_window.end_date:
+            period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
+        else:
+            period_info = f"{current_window.start_date.strftime('%d/%m/%Y')} — {current_window.end_date.strftime('%d/%m/%Y')}"
+        
+        st.caption(f"**Période utilisée :** {period_info}")
+    
+        st.subheader("Ce qui mérite votre attention")
+        signals = []
+    
+        if filtered_usage.empty:
+            signals.append({
+                "type": "error",
+                "title": "Aucune donnée disponible",
+                "message": "Aucune donnée disponible sur la période sélectionnée.",
+                "action": None
+            })
+        else:
+            if selected_service == "Tous les services":
+                latest_dates = {}
+                for srv in available_services:
+                    srv_usage = data.usage_events[data.usage_events["service"].astype(str).eq(srv)]
+                    if not srv_usage.empty:
+                        _, srv_end = get_available_date_bounds(srv_usage)
+                        if srv_end:
+                            latest_dates[srv] = srv_end.strftime('%d/%m/%Y')
+            
+                if len(set(latest_dates.values())) > 1:
+                    details = "<br>".join([f"<strong>{s}</strong> : {d}" for s, d in latest_dates.items()])
+                    signals.append({
+                        "type": "warning",
+                        "title": "Fraîcheur des données hétérogène",
+                        "message": f"Les comparaisons entre services doivent tenir compte des différences de fraîcheur.<br><br>{details}",
+                        "action": None
+                    })
+            else:
+                if current_window is not None and current_window.start_date == current_window.end_date:
+                    signals.append({
+                        "type": "info",
+                        "title": "Historique limité",
+                        "message": "Une seule journée est sélectionnée.",
+                        "action": None
+                    })
+                elif current_window is not None:
+                    available_end_ts = pd.Timestamp(available_end).normalize()
+                    window_end_ts = pd.Timestamp(current_window.end_date).normalize()
+                    staleness_days = (window_end_ts - available_end_ts).days
+
+                    if staleness_days > 7:
+                        signals.append({
+                            "type": "warning",
+                            "title": "Dernière donnée ancienne",
+                            "message": f"La dernière donnée date du {available_end.strftime('%d/%m/%Y')}.",
+                            "action": None
+                        })
+
+            signals.append({
+                "type": "info",
+                "title": "Taux d'adoption non disponible",
+                "message": "Population éligible manquante.",
+                "action": "Action : compléter le référentiel des utilisateurs éligibles."
+            })
+        
+            dept_df = departmental_breakdown(filtered_usage)
+            if not dept_df.empty and "department" in dept_df.columns:
+                total_events = dept_df["events"].sum()
+                unknown_events = dept_df[dept_df["department"] == "Unknown"]["events"].sum()
+                if total_events > 0 and (unknown_events / total_events) > 0.5:
+                    signals.append({
+                        "type": "warning",
+                        "title": "Analyse organisationnelle limitée",
+                        "message": "Mapping utilisateur — entité/campus manquant.",
+                        "action": "Action : fournir le mapping utilisateur — organisation."
+                    })
+
+        for sig in signals[:2]:
+            st.markdown(
+                f'''
+                <div class="attention-card attention-{sig["type"]}">
+                    <h4>{sig["title"]}</h4>
+                    <p>{sig["message"]}</p>
+                    {f'<div class="attention-action">{sig["action"]}</div>' if sig["action"] else ""}
+                </div>
+                ''',
+                unsafe_allow_html=True
+            )
+
+    if current_window is not None and current_window.label not in ("Toute la période disponible", "Dernière date disponible"):
+        kpi_reference_date = current_window.end_date
+    else:
+        kpi_reference_date = None
+
+    if selected_period == "Dernière date disponible":
+        kpi_usage = service_usage.copy()
+    else:
+        kpi_usage = filtered_usage
+
+    previous_usage = pd.DataFrame()
+
+    if current_window is not None:
+        previous_window = get_previous_window(current_window)
+
+        previous_usage = apply_date_filter(
+            service_usage,
+            previous_window,
+        )
+
+
 
     if current_window is not None:
         service_label = selected_service
@@ -2211,10 +2293,6 @@ if selected_tab == "Vue d'ensemble":
                     border=True,
                 )
 
-            st.info(
-                "Le taux d’utilisation réel nécessite la population éligible par service. "
-                "Cette donnée n’est pas disponible actuellement, donc le taux reste non calculable."
-            )
 
     # ── Évolution de l’adoption ────────────────────────────────────────────────
 

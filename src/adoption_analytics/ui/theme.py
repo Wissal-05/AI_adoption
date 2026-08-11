@@ -82,6 +82,43 @@ def apply_um6p_theme() -> None:
             padding: 18px;
         }}
 
+        .attention-card {{
+            background: {SURFACE};
+            border: 1px solid {BORDER};
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            border-left-width: 4px;
+            border-left-style: solid;
+        }}
+        .attention-card.attention-warning {{
+            border-left-color: #f59e0b;
+        }}
+        .attention-card.attention-info {{
+            border-left-color: #3b82f6;
+        }}
+        .attention-card.attention-error {{
+            border-left-color: #ef4444;
+        }}
+        .attention-card h4 {{
+            margin: 0 0 4px 0 !important;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: {TEXT};
+        }}
+        .attention-card p {{
+            margin: 0 !important;
+            font-size: 0.85rem;
+            color: {MUTED};
+        }}
+        .attention-card .attention-action {{
+            margin-top: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: {TEXT};
+        }}
+
         /* --- Sidebar & Navigation Styling --- */
         section[data-testid="stSidebar"] {{
             width: 230px !important;
@@ -118,11 +155,7 @@ def apply_um6p_theme() -> None:
             font-weight: 700 !important;
         }}
         
-        /* Hide the native radio circle completely */
-        section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-of-type,
-        section[data-testid="stSidebar"] div[role="radiogroup"] > label > input[type="radio"] + div {{
-            display: none !important;
-        }}
+
 
         /* Filter container styling */
         .filter-container {{
