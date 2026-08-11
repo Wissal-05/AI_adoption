@@ -1210,9 +1210,6 @@ selected_tab = st.sidebar.radio(
     "Navigation",
     options=[
         "Vue d'ensemble",
-        "Adoption détaillée",
-        "Learning Center",
-        "Booking",
         "Security Analytics",
         "Assistant IA"
     ],
