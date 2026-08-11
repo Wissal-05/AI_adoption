@@ -1196,9 +1196,31 @@ def prepare_data_quality_recommendations(
 
     return recommendations
 
-# ── Sidebar — sources & filtres ────────────────────────────────────────────────
-if st.sidebar.button("Rafraîchir les données"):
+# ── Sidebar — Navigation ──────────────────────────────────────────────────────
+logo_path = ROOT / "assets" / "um6p_logo.png"
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), use_container_width=True)
 
+st.sidebar.markdown(
+    '<div class="um6p-eyebrow" style="margin-bottom: 1.5rem;">ADOPTION ANALYTICS</div>',
+    unsafe_allow_html=True,
+)
+
+selected_tab = st.sidebar.radio(
+    "Navigation",
+    options=[
+        "Vue d'ensemble",
+        "Adoption détaillée",
+        "Learning Center",
+        "Booking",
+        "Security Analytics",
+        "Assistant IA"
+    ],
+    label_visibility="collapsed"
+)
+
+st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
+if st.sidebar.button("Rafraîchir les données", use_container_width=True):
     load_data.clear()
     st.rerun()
 
@@ -1212,68 +1234,86 @@ available_services = sorted(
     .tolist()
 )
 
-st.markdown("### Analyse")
+# ── En-tête Principal ──────────────────────────────────────────────────────────
+st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
+st.title(selected_tab)
 
-control_service, control_period = st.columns([1, 1])
+if selected_tab == "Vue d'ensemble":
+    st.caption("Comprendre l'adoption. Identifier ce qui compte. Agir avec confiance.")
+elif selected_tab == "Learning Center":
+    st.caption("Analyse détaillée de l'adoption du Learning Center.")
+elif selected_tab == "Adoption détaillée":
+    st.caption("Vue granulaire de l'utilisation par département et profil.")
+elif selected_tab == "Security Analytics":
+    st.caption("Surveillance et détection d'activités suspectes.")
+elif selected_tab == "Booking":
+    st.caption("Analyse des réservations et de l'utilisation des espaces.")
+elif selected_tab == "Assistant IA":
+    st.caption("Métriques d'utilisation de l'assistant intelligent.")
 
-with control_service:
-    selected_service = st.selectbox(
-        "Service",
-        ["Tous les services"] + available_services,
-        index=0,
-        key="global_service_filter",
-    )
-
-# Le service pilote le dataset servant à déterminer la période disponible.
-if selected_service == "Tous les services":
-    service_usage = data.usage_events.copy()
-else:
-    service_usage = data.usage_events[
-        data.usage_events["service"].astype(str).eq(selected_service)
-    ].copy()
-
-available_start, available_end = get_available_date_bounds(service_usage)
-
-with control_period:
-    selected_period = st.selectbox(
-        "Période",
-        PERIOD_OPTIONS,
-        index=0,
-        key="global_period_filter",
-    )
-
-custom_start = None
-custom_end = None
-
-if (
-    selected_period == "Période personnalisée"
-    and available_start is not None
-    and available_end is not None
-):
-    custom_col1, custom_col2 = st.columns(2)
-
-    with custom_col1:
-        custom_start = st.date_input(
-            "Du",
-            value=available_start.date(),
-            min_value=available_start.date(),
-            max_value=available_end.date(),
-            key="custom_start_date",
+# ── Filtres Globaux ────────────────────────────────────────────────────────────
+with st.container(border=True):
+    control_service, control_period = st.columns([1, 1])
+    
+    with control_service:
+        selected_service = st.selectbox(
+            "Service",
+            ["Tous les services"] + available_services,
+            index=0,
+            key="global_service_filter",
         )
 
-    with custom_col2:
-        custom_end = st.date_input(
-            "Au",
-            value=available_end.date(),
-            min_value=available_start.date(),
-            max_value=available_end.date(),
-            key="custom_end_date",
+    # Le service pilote le dataset servant à déterminer la période disponible.
+    if selected_service == "Tous les services":
+        service_usage = data.usage_events.copy()
+    else:
+        service_usage = data.usage_events[
+            data.usage_events["service"].astype(str).eq(selected_service)
+        ].copy()
+
+    available_start, available_end = get_available_date_bounds(service_usage)
+
+    with control_period:
+        selected_period = st.selectbox(
+            "Période",
+            PERIOD_OPTIONS,
+            index=0,
+            key="global_period_filter",
         )
+
+    custom_start = None
+    custom_end = None
+
+    if (
+        selected_period == "Période personnalisée"
+        and available_start is not None
+        and available_end is not None
+    ):
+        custom_col1, custom_col2 = st.columns(2)
+
+        with custom_col1:
+            custom_start = st.date_input(
+                "Du",
+                value=available_start.date(),
+                min_value=available_start.date(),
+                max_value=available_end.date(),
+                key="custom_start_date",
+            )
+
+        with custom_col2:
+            custom_end = st.date_input(
+                "Au",
+                value=available_end.date(),
+                min_value=available_start.date(),
+                max_value=available_end.date(),
+                key="custom_end_date",
+            )
 
 if available_start is None or available_end is None:
     st.warning("Aucune donnée datée disponible avec cette sélection.")
     filtered_usage = service_usage.iloc[0:0].copy()
     current_window = None
+
 else:
     current_window = resolve_period(
         selected_period,
@@ -1977,32 +2017,9 @@ def prepare_data_quality_interpretation(data_quality_df: pd.DataFrame) -> dict:
         "recommendation": recommendation,
     }
 
-# ── Onglets ────────────────────────────────────────────────────────────────────
+# ── Pages ──────────────────────────────────────────────────────────────────────
 
-dashboard_tab,learning_center_tab, adoption_tab, security_tab, booking_tab, assistant_tab = st.tabs(
-    ["Dashboard adoption","Learning Center", "Adoption détaillée", "Security Analytics", "Booking", "Assistant IA"]
-)
-
-# ── Onglet Dashboard adoption unifié ───────────────────────────────────────────
-
-with dashboard_tab:
-    header_col1, header_col2 = st.columns([4, 1])
-
-    with header_col1:
-        st.markdown(
-            '<div class="um6p-eyebrow">Adoption Analytics  UM6P</div>',
-            unsafe_allow_html=True,
-        )
-        st.title("Vue densemble")
-        st.caption(
-            "Comprendre ladoption. Identifier ce qui compte. "
-            "Agir avec confiance."
-        )
-
-    with header_col2:
-        logo_path = ROOT / "assets" / "um6p_logo.png"
-        if logo_path.exists():
-            st.image(str(logo_path), use_container_width=True)
+if selected_tab == "Vue d'ensemble":
 
     if current_window is not None:
         service_label = selected_service
@@ -2663,7 +2680,7 @@ with dashboard_tab:
 
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
 
-with learning_center_tab:
+if selected_tab == "Learning Center":
     lc_vm = dashboard_service.get_learning_center_view()
     lc_display_kpis = lc_vm.latest_kpis.copy()
 
@@ -2739,7 +2756,7 @@ with learning_center_tab:
 
 # ── Onglet Adoption détaillée ─────────────────────────────────────────────────
 
-with adoption_tab:
+if selected_tab == "Adoption détaillée":
     adoption_vm = dashboard_service.get_adoption_view(filtered_usage)
     st.subheader("Vue globale de l’adoption")
     st.caption(
@@ -2802,7 +2819,7 @@ with adoption_tab:
 
 # ── Onglet Security Analytics ─────────────────────────────────────────────────
 
-with security_tab:
+if selected_tab == "Security Analytics":
     security_vm = SecurityService.analyze(data.web_logs)
 
     with st.container(horizontal=True):
@@ -2829,7 +2846,7 @@ with security_tab:
 
 # ── Onglet Booking ────────────────────────────────────────────────────────────
 
-with booking_tab:
+if selected_tab == "Booking":
     st.header("Booking")
 
     booking_usage = data.usage_events[
@@ -2944,7 +2961,7 @@ with booking_tab:
 
 # ── Onglet Assistant IA ───────────────────────────────────────────────────────
 
-with assistant_tab:
+if selected_tab == "Assistant IA":
     st.subheader("Assistant IA d’adoption")
     assistant = get_assistant()
     
