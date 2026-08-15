@@ -170,28 +170,24 @@ def load_dashboard_data() -> DashboardData:
         web_log_frames.append(lc_web_logs)
 
     # ── Booking ────────────────────────────────────────────────────────────────
-    booking_config = DataSourceConfig(
-        "booking",
-        settings.booking_repo_dir / "usage-events-60d.csv",
-        "usage",
-    )
+    from adoption_analytics.data_sources.booking import BookingDataLoader
+    
+    booking_dir = settings.booking_repo_dir
+    booking_config = DataSourceConfig("booking", booking_dir, "usage")
+    
+    loader = BookingDataLoader(booking_dir)
+    booking_raw_events = loader.load_events()
+    booking_raw_sessions = loader.load_sessions()
+    booking_raw_users = loader.load_users()
+    booking_raw_eligible = loader.load_eligible_population()
+    
     booking_df = BookingSource(booking_config).load()
 
-    booking_daily_kpis_path = settings.booking_repo_dir / "daily-kpis-60d.csv"
-    booking_daily_kpis = (
-        pd.read_csv(booking_daily_kpis_path)
-        if booking_daily_kpis_path.exists()
-        else pd.DataFrame()
-    )
-
-    if not booking_daily_kpis.empty:
-        booking_daily_kpis["date"] = pd.to_datetime(
-            booking_daily_kpis["date"],
-            errors="coerce",
-        )
-
     raw_by_source["booking"] = {
-        "daily_kpis": booking_daily_kpis,
+        "events": booking_raw_events,
+        "sessions": booking_raw_sessions,
+        "users": booking_raw_users,
+        "eligible": booking_raw_eligible,
     }
 
     if not booking_df.empty:

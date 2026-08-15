@@ -10,6 +10,7 @@ les métriques, les connecteurs ou le registry.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -28,6 +29,17 @@ from adoption_analytics.metrics.learning_center import (
 )
 from adoption_analytics.reporting.alerts import build_usage_drop_alerts
 from adoption_analytics.reporting.weekly import build_weekly_summary
+
+
+@dataclass
+class ServiceExtendedAnalytics:
+    """Modèle générique pour les analytics enrichies par service."""
+    status: str
+    usage: dict[str, Any] | None = None
+    connection: dict[str, Any] | None = None
+    adoption_by_module: list[dict[str, Any]] | None = None
+    adoption_by_campus: list[dict[str, Any]] | None = None
+    data_quality: dict[str, Any] | None = None
 
 
 @dataclass
@@ -133,6 +145,37 @@ class DashboardService:
             "fraicheur": fraicheur,
             "table_data": table_data
         }
+
+    def get_service_extended_analytics(self, service_name: str, reference_date: pd.Timestamp | None = None, window_days: int = 30) -> ServiceExtendedAnalytics:
+        """Expose les analytics enrichies pour un service donné."""
+        if service_name == "Booking":
+            raw = self.data.raw_by_source.get("booking", {})
+            events = raw.get("events", pd.DataFrame())
+            sessions = raw.get("sessions", pd.DataFrame())
+            users = raw.get("users", pd.DataFrame())
+            eligible = raw.get("eligible", pd.DataFrame())
+            
+            if events.empty and sessions.empty:
+                return ServiceExtendedAnalytics(status="not_available")
+                
+            from adoption_analytics.metrics.booking_metrics import (
+                compute_booking_usage_kpis,
+                compute_booking_connection_kpis,
+                compute_booking_adoption_by_module,
+                compute_booking_adoption_by_campus,
+                compute_booking_data_quality
+            )
+            
+            return ServiceExtendedAnalytics(
+                status="available",
+                usage=compute_booking_usage_kpis(events, reference_date=reference_date),
+                connection=compute_booking_connection_kpis(sessions, events, reference_date=reference_date, window_days=window_days),
+                adoption_by_module=compute_booking_adoption_by_module(events, eligible, reference_date=reference_date, window_days=window_days),
+                adoption_by_campus=compute_booking_adoption_by_campus(events, eligible, users, reference_date=reference_date, window_days=window_days),
+                data_quality=compute_booking_data_quality(events, sessions, users)
+            )
+            
+        return ServiceExtendedAnalytics(status="not_available")
 
     def get_learning_center_view(self) -> LearningCenterViewModel:
         """Agrège les données source-spécifiques Learning Center pour l'UI."""
