@@ -16,6 +16,13 @@ USAGE_COLUMNS: list[str] = [
     "service",          # str — application utilisée (ex: "Learning Center")
     "action",           # str — action fonctionnelle (ex: "login", "visit")
     "source",           # str — source technique du log (ex: "learning_center_nginx")
+    # --- Booking spécifiques ---
+    "module",           # str — module Booking (ex: HOUSING)
+    "business_status",  # str — statut métier de l'action
+    "user_role",        # str — rôle de l'utilisateur
+    "user_status",      # str — statut de l'utilisateur
+    "campus_name",      # str — campus
+    "entity_name",      # str — entité
 ]
 
 
@@ -28,6 +35,12 @@ class UsageEventSchema(TypedDict):
     service: str
     action: str
     source: str
+    module: str
+    business_status: str
+    user_role: str
+    user_status: str
+    campus_name: str
+    entity_name: str
 
 
 def empty_usage_df() -> pd.DataFrame:
