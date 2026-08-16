@@ -2482,6 +2482,104 @@ if selected_tab == "Vue d'ensemble":
                     ),
                 },
             )
+
+    # ── Adoption par campus (Service spécifique) ──────────────────────────────
+    
+    if True:
+        with st.container(border=True):
+            st.subheader("Adoption par campus")
+            st.caption("Comparer l'activité observée à la population éligible.")
+            
+            if selected_service == "Tous les services":
+                st.info("Non disponible")
+                st.caption("Sélectionnez un service pour analyser l'adoption par campus.")
+            else:
+                if current_window is not None:
+                    reference_date = current_window.end_date
+                    window_days = (current_window.end_date - current_window.start_date).days + 1
+                else:
+                    reference_date = None
+                    window_days = 30
+                    
+                extended = dashboard_service.get_service_extended_analytics(
+                    selected_service,
+                    reference_date=reference_date,
+                    window_days=window_days
+                )
+                
+                if extended is None or extended.status == "not_available" or not extended.adoption_by_module:
+                    st.info("Non disponible")
+                    st.caption("Les données nécessaires à l'adoption par campus ne sont pas disponibles pour ce service.")
+                else:
+                    modules = [m["module"] for m in extended.adoption_by_module if "module" in m]
+                    
+                    if not modules:
+                        st.info("Non disponible")
+                        st.caption("Les données nécessaires à l'adoption par campus ne sont pas disponibles pour ce service.")
+                    else:
+                        default_idx = modules.index("HOUSING") if "HOUSING" in modules else 0
+                        
+                        selected_module = st.selectbox(
+                            "Module",
+                            options=modules,
+                            index=default_idx,
+                            key="adoption_campus_module_filter"
+                        )
+                        
+                        if extended.adoption_by_campus:
+                            campus_data = [row for row in extended.adoption_by_campus if row.get("module") == selected_module]
+                            
+                            if not campus_data:
+                                st.info("Adoption par campus non disponible")
+                                st.caption("Population éligible non fournie pour ce module.")
+                            else:
+                                display_rows = []
+                                for row in campus_data:
+                                    campus = row.get("campus", "Inconnu")
+                                    active = row.get("active_users", 0)
+                                    eligible = row.get("eligible_users", 0)
+                                    rate = row.get("observed_adoption_rate")
+                                    status = row.get("status")
+                                    
+                                    if status == "available" and rate is not None:
+                                        if rate == 0:
+                                            adoption_text = "0 %"
+                                        else:
+                                            adoption_text = f"{rate} %"
+                                    elif status == "telemetry_unavailable":
+                                        adoption_text = "Non disponible - télémétrie absente"
+                                    elif status == "eligible_population_unavailable":
+                                        adoption_text = "Non disponible - population éligible absente"
+                                    else:
+                                        adoption_text = "Non disponible"
+                                    
+                                    active_str = f"{int(active)} actif{'s' if active > 1 else ''}"
+                                    eligible_str = f"{int(eligible)} éligible{'s' if eligible > 1 else ''}"
+                                    
+                                    display_rows.append({
+                                        "Campus": campus,
+                                        "Utilisateurs actifs": active_str,
+                                        "Population éligible": eligible_str,
+                                        "Adoption observée": adoption_text,
+                                        "_sort_val": rate if rate is not None else -1
+                                    })
+                                
+                                if display_rows:
+                                    df_display = pd.DataFrame(display_rows)
+                                    df_display = df_display.sort_values(by="_sort_val", ascending=False).drop(columns=["_sort_val"])
+                                    
+                                    st.dataframe(
+                                        df_display,
+                                        hide_index=True,
+                                        width="stretch"
+                                    )
+                                else:
+                                    st.info("Adoption par campus non disponible")
+                                    st.caption("Population éligible non fournie pour ce module.")
+                        else:
+                            st.info("Adoption par campus non disponible")
+                            st.caption("Population éligible non fournie pour ce module.")
+
     # ── Top interactions ──────────────────────────────────────────────────────
 
     if current_window is not None and data.web_logs is not None and not data.web_logs.empty:
