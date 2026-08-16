@@ -274,6 +274,7 @@ def prepare_unified_top_interactions_table(
     usage_df: pd.DataFrame,
     web_logs_df: pd.DataFrame | None = None,
     top_n: int = 15,
+    measure: str = "Utilisateurs distincts",
 ) -> pd.DataFrame:
     """Prépare une table commune des interactions les plus fréquentes."""
 
@@ -281,6 +282,7 @@ def prepare_unified_top_interactions_table(
         "Service",
         "Type d’interaction",
         "Interaction",
+        "Utilisateurs distincts",
         "Événements",
         "Part des événements (%)",
         "Statut données",
@@ -348,11 +350,22 @@ def prepare_unified_top_interactions_table(
             axis=1,
         )
 
-        grouped = (
-            service_events.groupby(["interaction", "interaction_type"])
-            .size()
-            .reset_index(name="events")
-        )
+        if "user_id" in service_events.columns:
+            grouped = (
+                service_events.groupby(["interaction", "interaction_type"])
+                .agg(
+                    events=("interaction", "size"),
+                    unique_users=("user_id", lambda x: x.nunique(dropna=True))
+                )
+                .reset_index()
+            )
+        else:
+            grouped = (
+                service_events.groupby(["interaction", "interaction_type"])
+                .size()
+                .reset_index(name="events")
+            )
+            grouped["unique_users"] = 0
 
         total_events = grouped["events"].sum()
 
@@ -360,12 +373,14 @@ def prepare_unified_top_interactions_table(
             interaction = row["interaction"]
             interaction_type = row["interaction_type"]
             events = int(row["events"])
+            unique_users = int(row.get("unique_users", 0))
 
             rows.append(
                 {
                     "Service": service,
                     "Type d’interaction": interaction_type,
                     "Interaction": interaction,
+                    "Utilisateurs distincts": unique_users,
                     "Événements": events,
                     "Part des événements (%)": round(
                         events / total_events * 100,
@@ -417,17 +432,29 @@ def prepare_unified_top_interactions_table(
                 .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
             )
 
-            lc_grouped = (
-                lc_logs.groupby("interaction")
-                .size()
-                .reset_index(name="events")
-            )
+            if "source_ip" in lc_logs.columns:
+                lc_grouped = (
+                    lc_logs.groupby("interaction")
+                    .agg(
+                        events=("interaction", "size"),
+                        unique_users=("source_ip", lambda x: x.nunique(dropna=True))
+                    )
+                    .reset_index()
+                )
+            else:
+                lc_grouped = (
+                    lc_logs.groupby("interaction")
+                    .size()
+                    .reset_index(name="events")
+                )
+                lc_grouped["unique_users"] = 0
 
             lc_total = lc_grouped["events"].sum()
 
             for _, row in lc_grouped.iterrows():
                 interaction = row["interaction"]
                 events = int(row["events"])
+                unique_users = int(row.get("unique_users", 0))
 
                 rows.append(
                     {
@@ -437,6 +464,7 @@ def prepare_unified_top_interactions_table(
                             interaction,
                         ),
                         "Interaction": interaction,
+                        "Utilisateurs distincts": unique_users,
                         "Événements": events,
                         "Part des événements (%)": round(
                             events / lc_total * 100,
@@ -457,9 +485,11 @@ def prepare_unified_top_interactions_table(
 
     result = pd.DataFrame(rows)
 
+    sort_column = "Utilisateurs distincts" if measure in ["Utilisateurs distincts", "Adresses IP distinctes"] else "Événements"
+    
     result = result.sort_values(
-        by="Événements",
-        ascending=False,
+        by=[sort_column, "Événements"],
+        ascending=[False, False],
     ).head(top_n)
 
     return result[display_columns].reset_index(drop=True)
@@ -2623,62 +2653,92 @@ if selected_tab == "Vue d'ensemble":
 
     # ── Top interactions ──────────────────────────────────────────────────────
 
-    if current_window is not None and data.web_logs is not None and not data.web_logs.empty:
-        web_logs_ts_col = "timestamp" if "timestamp" in data.web_logs.columns else "event_timestamp"
-        filtered_web_logs = apply_date_filter(data.web_logs, current_window, timestamp_column=web_logs_ts_col)
-    else:
-        filtered_web_logs = data.web_logs
-
-    unified_top_interactions = prepare_unified_top_interactions_table(
-        filtered_usage,
-        web_logs_df=filtered_web_logs,
-        top_n=15,
-    )
-
-    with st.container(border=True):
-        top_title_col, top_interpretation_col = st.columns(
-            [4, 1],
-            vertical_alignment="center",
-        )
-
-        with top_title_col:
+    if selected_service == "Tous les services":
+        with st.container(border=True):
             st.subheader("Top interactions")
-
-        top_interactions_interpretation = prepare_top_interactions_interpretation(
-            unified_top_interactions,
-        )
-        top_interactions_interpretation = add_recommendations_to_insight(
-            top_interactions_interpretation,
-            prepare_top_interactions_recommendations(unified_top_interactions),
-        )
-
-        with top_interpretation_col:
-            with st.popover("💡 Interprétation IA"):
-                render_interpretation_popover(top_interactions_interpretation)
-
-        st.caption(
-            "Vue commune des pages, routes, API ou actions métier les plus fréquentes. "
-            "Le type d’interaction permet d’utiliser une même structure pour tous les services."
-        )
-
-        if unified_top_interactions.empty:
-            st.info("Aucune interaction disponible pour les filtres sélectionnés.")
-        else:
-            st.dataframe(
-                unified_top_interactions,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Événements": st.column_config.NumberColumn(
-                        "Événements",
-                        format="%d",
-                    ),
-                    "Part des événements (%)": st.column_config.NumberColumn(
-                        "Part des événements (%)",
-                        format="%.2f",
-                    ),
-                },
+            st.info("Sélectionnez un service pour analyser ses interactions.")
+            st.caption(
+                "Les interactions (pages web vs actions métier) ont des dimensions différentes "
+                "et ne peuvent pas être comparées dans un même classement."
             )
+    else:
+        if current_window is not None and data.web_logs is not None and not data.web_logs.empty:
+            web_logs_ts_col = "timestamp" if "timestamp" in data.web_logs.columns else "event_timestamp"
+            filtered_web_logs = apply_date_filter(data.web_logs, current_window, timestamp_column=web_logs_ts_col)
+        else:
+            filtered_web_logs = data.web_logs
+
+        with st.container(border=True):
+            top_title_col, measure_select_col = st.columns(
+                [3, 1],
+                vertical_alignment="center",
+            )
+
+            with top_title_col:
+                st.subheader("Top interactions")
+
+            with measure_select_col:
+                measure_options = ["Utilisateurs distincts", "Événements observés"]
+                if selected_service == "Learning Center":
+                    measure_options = ["Adresses IP distinctes", "Événements observés"]
+                
+                selected_measure = st.selectbox(
+                    "Mesure",
+                    options=measure_options,
+                    index=0,
+                    key="top_interactions_measure",
+                    label_visibility="collapsed"
+                )
+
+            unified_top_interactions = prepare_unified_top_interactions_table(
+                filtered_usage,
+                web_logs_df=filtered_web_logs,
+                top_n=10,
+                measure=selected_measure
+            )
+
+            top_interactions_interpretation = prepare_top_interactions_interpretation(
+                unified_top_interactions,
+            )
+            top_interactions_interpretation = add_recommendations_to_insight(
+                top_interactions_interpretation,
+                prepare_top_interactions_recommendations(unified_top_interactions),
+            )
+
+            st.caption(
+                "Vue détaillée des pages, routes, API ou actions métier les plus fréquentes."
+                + (" Le volume événementiel Booking peut inclure des signatures répétées ; il mesure l'activité observée, pas l'adoption." if selected_service == "Booking" and selected_measure == "Événements observés" else "")
+            )
+            
+            if selected_service == "Learning Center":
+                st.caption(
+                    "Les adresses IP sources représentent une portée réseau observée. "
+                    "Une adresse IP ne correspond pas nécessairement à un utilisateur unique, "
+                    "notamment en présence de NAT, proxy ou réseaux partagés."
+                )
+
+            if unified_top_interactions.empty:
+                st.info("Aucune interaction disponible pour les filtres sélectionnés.")
+            else:
+                st.dataframe(
+                    unified_top_interactions,
+                    hide_index=True,
+                    width="stretch",
+                    column_config={
+                        "Utilisateurs distincts": st.column_config.NumberColumn(
+                            "Adresses IP distinctes" if selected_service == "Learning Center" else "Utilisateurs",
+                            format="%d",
+                        ),
+                        "Événements": st.column_config.NumberColumn(
+                            "Événements",
+                            format="%d",
+                        ),
+                        "Part des événements (%)": st.column_config.NumberColumn(
+                            "Part des événements (%)",
+                            format="%.2f",
+                        ),
+                    },
+                )
 
     # ── Synthèse Matomo / Ecommerce Demo ───────────────────────────────────────
 
