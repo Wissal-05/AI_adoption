@@ -2869,85 +2869,78 @@ if selected_tab == "Vue d'ensemble":
 
     # ── Données manquantes / Qualité des données ──────────────────────────────
 
-    unified_data_quality = prepare_unified_data_quality_table(
-        filtered_usage,
-        dashboard_adoption_vm.departmental,
-        web_logs_df=data.web_logs,
-    )
-
     with st.container(border=True):
-        dq_title_col, dq_interpretation_col = st.columns(
-            [4, 1],
-            vertical_alignment="center",
-        )
-
-        with dq_title_col:
-            st.subheader("Qualité des données")
-
-        data_quality_interpretation = prepare_data_quality_interpretation(
-            unified_data_quality,
-        )
-        data_quality_interpretation = add_recommendations_to_insight(
-            data_quality_interpretation,
-            prepare_data_quality_recommendations(unified_data_quality),
-        )
-
-        with dq_interpretation_col:
-            with st.popover("💡 Interprétation IA"):
-                render_interpretation_popover(data_quality_interpretation)
-
-        st.caption(
-            "Cette section distingue les indicateurs calculables avec les données actuelles "
-            "des informations nécessaires pour mesurer une adoption métier complète."
-        )
-
-        if unified_data_quality.empty:
-            st.info("Aucune information disponible sur la qualité des données.")
+        st.subheader("Qualité des données")
+        
+        if selected_service == "Tous les services":
+            st.info("Qualité à analyser par service")
+            st.caption("Sélectionnez un service pour consulter ses contrôles de qualité et ses limites spécifiques.")
         else:
-            services_count = unified_data_quality["Service"].nunique()
-
-            services_with_missing_data = (
-                unified_data_quality["Statut global"]
-                .astype(str)
-                .isin(["Partiel", "À compléter"])
-                .sum()
-            )
-
-            with st.container(horizontal=True):
-                st.metric("Services analysés", services_count, border=True)
-                st.metric("Taux d’utilisation", "Non calculable", border=True)
-                st.metric(
-                    "Services avec données manquantes",
-                    int(services_with_missing_data),
-                    border=True,
+            extended_dq = dashboard_service.get_service_extended_analytics(selected_service)
+            if selected_service == "Booking" and extended_dq.status != "not_available" and extended_dq.data_quality:
+                dq = extended_dq.data_quality
+                
+                st.caption("Fiabilité et limites de l'extraction actuellement chargée.")
+                
+                event_cov = dq.get("event_user_mapping_coverage", 0)
+                session_cov = dq.get("session_user_mapping_coverage", 0)
+                if event_cov == 100 and session_cov == 100:
+                    mapping_val = "100 %"
+                    mapping_sub = "Événements et sessions rattachés au référentiel"
+                else:
+                    mapping_val = f"{min(event_cov, session_cov)} %"
+                    mapping_sub = "Couverture partielle au référentiel"
+                    
+                parse_failures = dq.get("event_timestamp_parse_failures", 0) + dq.get("session_created_at_parse_failures", 0)
+                if parse_failures == 0:
+                    ts_val = "100 %"
+                    ts_sub = "0 échec de parsing détecté"
+                else:
+                    ts_val = "Partiel"
+                    ts_sub = f"{parse_failures} échecs de parsing"
+                    
+                missing_active = dq.get("missing_entity_active_users", 0)
+                total_active = dq.get("unique_event_users", 1)
+                if total_active > 0:
+                    entity_cov = ((total_active - missing_active) / total_active) * 100
+                    ent_val = f"{entity_cov:.1f} %".replace(".", ",")
+                else:
+                    ent_val = "Non disponible"
+                ent_sub = "Utilisateurs actifs avec entité"
+                
+                rep_share = dq.get("possible_repeated_event_share", 0)
+                rep_val = f"{rep_share:.2f} %".replace(".", ",")
+                rep_sub = "Signatures événementielles répétées"
+                rep_count = dq.get("possible_repeated_event_rows", 0)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    render_kpi_card("Mapping utilisateurs", mapping_val, mapping_sub)
+                with col2:
+                    render_kpi_card("Timestamps valides", ts_val, ts_sub)
+                with col3:
+                    render_kpi_card("Entités renseignées", ent_val, ent_sub)
+                with col4:
+                    render_kpi_card("Répétitions possibles", rep_val, rep_sub)
+                    
+                st.markdown(
+                    f"<p style='font-size: 0.85em; color: gray; margin-top: 10px;'>"
+                    f"{rep_count} lignes présentent des signatures événementielles répétées selon la règle "
+                    f"de détection actuelle. Elles sont signalées mais non supprimées automatiquement. "
+                    f"L'absence d'un identifiant événementiel unique ne permet pas de confirmer qu'il s'agit de doublons.</p>",
+                    unsafe_allow_html=True
                 )
-            
-            st.dataframe(
-                unified_data_quality,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Événements disponibles": st.column_config.NumberColumn(
-                        "Événements disponibles",
-                        format="%d",
-                    ),
-                    "Utilisateurs actifs observés": st.column_config.NumberColumn(
-                        "Utilisateurs actifs observés",
-                        format="%d",
-                    ),
-                },
-            )
-
-            st.markdown(
-                """
-                <div class="data-quality-card">
-                    <strong>Méthodologie</strong><br>
-                    Le taux d’utilisation réel nécessite une population éligible par service. 
-                    L’adoption par entité ou campus nécessite aussi un mapping utilisateur vers organisation.
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            else:
+                st.caption("Fiabilité et limites de l'extraction actuellement chargée.")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    render_kpi_card("Mapping utilisateurs", "Non disponible", "Non calculé pour ce service")
+                with col2:
+                    render_kpi_card("Timestamps valides", "Non disponible", "Non calculé pour ce service")
+                with col3:
+                    render_kpi_card("Entités renseignées", "Non disponible", "Non calculé pour ce service")
+                with col4:
+                    render_kpi_card("Répétitions possibles", "Non disponible", "Non calculé pour ce service")
 
     st.markdown("### Demandez à Adoption AI")
     st.text_input("Posez votre question sur l'adoption...", key="adoption_ai_question")
