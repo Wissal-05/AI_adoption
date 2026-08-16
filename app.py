@@ -2942,8 +2942,6 @@ if selected_tab == "Vue d'ensemble":
                 with col4:
                     render_kpi_card("Répétitions possibles", "Non disponible", "Non calculé pour ce service")
 
-    st.markdown("### Demandez à Adoption AI")
-    st.text_input("Posez votre question sur l'adoption...", key="adoption_ai_question")
 
 # ── Onglet Learning Center ─────────────────────────────────────────────────────
 
