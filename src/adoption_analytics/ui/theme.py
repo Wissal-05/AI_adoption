@@ -156,6 +156,38 @@ def apply_um6p_theme() -> None:
         }}
         
 
+        /* KPI Card styling (Vercel/Linear style) */
+        .kpi-card {{
+            background: {SURFACE};
+            border: 1px solid {BORDER};
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }}
+        .kpi-card-title {{
+            color: {MUTED};
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin: 0;
+        }}
+        .kpi-card-value {{
+            color: {TEXT};
+            font-size: 2rem;
+            font-weight: 600;
+            line-height: 1.2;
+            margin: 0;
+        }}
+        .kpi-card-subtitle {{
+            color: {MUTED};
+            font-size: 0.85rem;
+            margin: 0;
+        }}
+
 
         /* Filter container styling */
         .filter-container {{

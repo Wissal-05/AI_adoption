@@ -592,6 +592,7 @@ def prepare_unified_data_quality_table(
 def prepare_kpi_interpretation(
     metrics: dict,
     usage_df: pd.DataFrame,
+    is_booking: bool = False,
 ) -> dict:
     """Génère une interprétation contrôlée des KPI communs."""
 
@@ -618,12 +619,22 @@ def prepare_kpi_interpretation(
     else:
         service_scope = f"{len(services)} services : {', '.join(services)}"
 
+    if is_booking:
+        avg_days = metrics.get("avg_active_days_per_active_user_30d")
+        if avg_days is not None:
+            freq_str = f"{avg_days}".replace(".", ",")
+            observation_freq = f"avec en moyenne {freq_str} jours actifs par utilisateur actif sur les 30 derniers jours."
+        else:
+            observation_freq = "avec une fréquence d'usage non disponible."
+    else:
+        observation_freq = f"et une fréquence moyenne de {frequency:.1f} événements par utilisateur actif."
+
     observation = (
         f"Les KPI affichés couvrent {service_scope}. "
         f"Ils indiquent {dau:,} utilisateurs actifs quotidiens, "
         f"{wau:,} utilisateurs actifs hebdomadaires, "
-        f"{mau:,} utilisateurs actifs mensuels et une fréquence moyenne de "
-        f"{frequency:.1f} événements par utilisateur actif."
+        f"{mau:,} utilisateurs actifs mensuels, "
+        f"{observation_freq}"
     )
 
     if mau == 0:
@@ -2115,6 +2126,24 @@ if selected_tab == "Vue d'ensemble":
         kpi_usage=kpi_usage
     )
 
+    st.subheader("Santé de l'adoption")
+    if selected_service != "Tous les services":
+        st.caption("Activité récente et régularité d'usage du service.")
+    else:
+        st.caption("Vue d'ensemble des services disponibles.")
+
+    def render_kpi_card(title: str, value: str, subtitle: str) -> None:
+        st.markdown(
+            f'''
+            <div class="kpi-card">
+                <div class="kpi-card-title">{title}</div>
+                <div class="kpi-card-value">{value}</div>
+                <div class="kpi-card-subtitle">{subtitle}</div>
+            </div>
+            ''',
+            unsafe_allow_html=True
+        )
+
     if selected_service == "Tous les services":
         overview = dashboard_service.get_global_overview(
             filtered_usage, 
@@ -2125,16 +2154,16 @@ if selected_tab == "Vue d'ensemble":
         
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         with kpi1:
-            st.metric("Services suivis", overview["services_suivis"])
+            render_kpi_card("Services suivis", str(overview["services_suivis"]), "Total configuré")
         with kpi2:
-            st.metric("Services avec données", overview["services_avec_donnees"])
+            render_kpi_card("Services avec données", str(overview["services_avec_donnees"]), "Actifs sur la période")
         with kpi3:
-            st.metric("Volume observé", f"{overview['volume_observe']:,}".replace(",", " "))
+            render_kpi_card("Volume observé", f"{overview['volume_observe']:,}".replace(",", " "), "Événements totaux")
         with kpi4:
-            st.metric("Fraîcheur", overview["fraicheur"])
+            render_kpi_card("Fraîcheur", overview["fraicheur"], "Dernière donnée")
             
         st.markdown(
-            "<p style='font-size: 0.9em; color: gray; font-style: italic;'>"
+            "<p style='font-size: 0.9em; color: gray; font-style: italic; margin-top: 12px;'>"
             "Les utilisateurs ne sont pas agrégés entre services car les "
             "sources ne garantissent pas une identité utilisateur commune. "
             "Les KPI sont donc présentés séparément par service."
@@ -2147,76 +2176,57 @@ if selected_tab == "Vue d'ensemble":
             
     else:
 
-
         metrics = dashboard_adoption_vm.metrics
-        previous_vm = dashboard_service.get_adoption_view(previous_usage)
-        previous_metrics = previous_vm.metrics
-
-        mau_change = compute_period_change(
-            metrics.get("mau"),
-            previous_metrics.get("mau") if previous_metrics else None,
-        )
-
-        wau_change = compute_period_change(
-            metrics.get("wau"),
-            previous_metrics.get("wau") if previous_metrics else None,
-        )
-
-        dau_change = compute_period_change(
-            metrics.get("dau"),
-            previous_metrics.get("dau") if previous_metrics else None,
-        )
-
-        frequency_change = compute_period_change(
-            metrics.get("avg_events_per_active_user"),
-            (
-                previous_metrics.get("avg_events_per_active_user")
-                if previous_metrics
-                else None
-            ),
-        )
-
         has_data = not filtered_usage.empty
+        
+        is_booking = (selected_service.lower() == "booking")
 
-        def format_delta(value):
-            if value is None:
-                return None
-            return f"{value:+.1f} % vs période précédente"
+        freq_val = "Non disponible"
+        freq_subtitle = "Fréquence comparable non disponible"
+        
+        if has_data and is_booking:
+            extended = dashboard_service.get_service_extended_analytics(
+                selected_service, 
+                reference_date=kpi_reference_date
+            )
+            if extended and extended.status != "not_available" and extended.usage:
+                # Override metrics for Booking to ensure a single source of truth
+                metrics.update({
+                    "dau": extended.usage.get("dau", metrics.get("dau")),
+                    "wau": extended.usage.get("wau", metrics.get("wau")),
+                    "mau": extended.usage.get("mau", metrics.get("mau")),
+                    "avg_active_days_per_active_user_30d": extended.usage.get("avg_active_days_per_active_user_30d"),
+                })
+                avg_days = extended.usage.get("avg_active_days_per_active_user_30d")
+                if avg_days is not None:
+                    freq_val = f"{avg_days}".replace(".", ",") + " jours"
+                    freq_subtitle = "Jours actifs moyens / utilisateur"
+
+        if has_data:
+            dau_val = f"{int(metrics.get('dau', 0)):,}".replace(",", " ")
+            wau_val = f"{int(metrics.get('wau', 0)):,}".replace(",", " ")
+            mau_val = f"{int(metrics.get('mau', 0)):,}".replace(",", " ")
+        else:
+            dau_val = "Non disponible"
+            wau_val = "Non disponible"
+            mau_val = "Non disponible"
 
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         
         with kpi1:
-            st.metric(
-                "MAU  Actifs 30 jours",
-                f"{int(metrics.get('mau', 0)):,}".replace(",", " ") if has_data else "Non disponible",
-                delta=format_delta(mau_change) if has_data else None,
-            )
-
+            render_kpi_card("DAU", dau_val, "Actifs du jour")
         with kpi2:
-            st.metric(
-                "WAU  Actifs 7 jours",
-                f"{int(metrics.get('wau', 0)):,}".replace(",", " ") if has_data else "Non disponible",
-                delta=format_delta(wau_change) if has_data else None,
-            )
-
+            render_kpi_card("WAU", wau_val, "Actifs sur 7 jours")
         with kpi3:
-            st.metric(
-                "DAU  Actifs du jour",
-                f"{int(metrics.get('dau', 0)):,}".replace(",", " ") if has_data else "Non disponible",
-                delta=format_delta(dau_change) if has_data else None,
-            )
-
+            render_kpi_card("MAU", mau_val, "Actifs sur 30 jours")
         with kpi4:
-            st.metric(
-                "Fréquence moyenne",
-                f"{float(metrics.get('avg_events_per_active_user', 0)):.1f}" if has_data else "Non disponible",
-                delta=format_delta(frequency_change) if has_data else None,
-            )
+            render_kpi_card("Fréquence d'usage", freq_val, freq_subtitle)
 
         if has_data:
             kpi_insight = prepare_kpi_interpretation(
                 metrics,
                 filtered_usage,
+                is_booking=is_booking,
             )
 
             next_actions = prepare_kpi_recommendations(metrics)
