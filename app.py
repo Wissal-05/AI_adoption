@@ -65,7 +65,12 @@ def format_optional_percentage(value: float | None) -> str:
 
     return f"{value:.1f} %"
 
-def build_unified_adoption_trend(usage_df: pd.DataFrame) -> pd.DataFrame:
+def build_unified_adoption_trend(
+    usage_df: pd.DataFrame,
+    start_date: pd.Timestamp | None = None,
+    end_date: pd.Timestamp | None = None,
+    service_bounds: dict[str, tuple[pd.Timestamp, pd.Timestamp]] | None = None
+) -> pd.DataFrame:
     """Construit une tendance quotidienne commune DAU / WAU / MAU / événements / fréquence par service."""
 
     required_columns = {"event_timestamp", "user_id", "service"}
@@ -98,7 +103,22 @@ def build_unified_adoption_trend(usage_df: pd.DataFrame) -> pd.DataFrame:
 
         daily_events = service_df.groupby("date").size().to_dict()
 
-        unique_dates = sorted(service_df["date"].unique())
+        if service_bounds and service in service_bounds:
+            actual_min, actual_max = service_bounds[service]
+            if start_date is not None and end_date is not None:
+                eff_start = max(actual_min, start_date.normalize())
+                eff_end = min(actual_max, end_date.normalize())
+                if eff_start <= eff_end:
+                    unique_dates = pd.date_range(eff_start, eff_end)
+                else:
+                    unique_dates = pd.DatetimeIndex([])
+            else:
+                unique_dates = pd.date_range(actual_min, actual_max)
+        else:
+            if start_date is not None and end_date is not None:
+                unique_dates = pd.date_range(start_date.normalize(), end_date.normalize())
+            else:
+                unique_dates = pd.date_range(service_df["date"].min(), service_df["date"].max())
 
         for current_date in unique_dates:
             day_users = daily_users.get(current_date, set())
@@ -1292,7 +1312,7 @@ def prepare_evolution_interpretation(
 
     working_df = trend_df.copy()
 
-    if selected_service != "Tous" and "service" in working_df.columns:
+    if selected_service != "Tous les services" and "service" in working_df.columns:
         working_df = working_df[
             working_df["service"].astype(str) == str(selected_service)
         ]
@@ -1355,7 +1375,7 @@ def prepare_evolution_interpretation(
             return f"{value:.1f}"
         return f"{int(round(value)):,}".replace(",", " ")
 
-    if selected_service == "Tous":
+    if selected_service == "Tous les services":
         service_scope = "l’ensemble des services sélectionnés"
     else:
         service_scope = f"le service {selected_service}"
@@ -2312,9 +2332,26 @@ if selected_tab == "Vue d'ensemble":
                 )
 
 
-    # ── Évolution de l’adoption ────────────────────────────────────────────────
+    # ── Évolution de l’usage ──────────────────────────────────────────────────
 
-    unified_trend = build_unified_adoption_trend(filtered_usage)
+    trend_start = current_window.start_date if current_window is not None and selected_period not in ("Toute la période disponible", "Dernière date disponible") else None
+    trend_end = current_window.end_date if current_window is not None and selected_period not in ("Toute la période disponible", "Dernière date disponible") else None
+
+    service_bounds = {}
+    if not data.usage_events.empty and "service" in data.usage_events.columns:
+        for srv in data.usage_events["service"].dropna().unique():
+            srv_usage = data.usage_events[data.usage_events["service"] == srv]
+            if not srv_usage.empty:
+                srv_min, srv_max = get_available_date_bounds(srv_usage)
+                if srv_min and srv_max:
+                    service_bounds[srv] = (srv_min, srv_max)
+
+    unified_trend = build_unified_adoption_trend(
+        filtered_usage, 
+        start_date=trend_start, 
+        end_date=trend_end, 
+        service_bounds=service_bounds
+    )
 
     trend_warning = dashboard_service.get_trend_warning_message(filtered_usage, selected_service)
     if trend_warning and selected_period != "Dernière date disponible":
@@ -2322,54 +2359,39 @@ if selected_tab == "Vue d'ensemble":
 
     with st.container(border=True):
         if unified_trend.empty:
-            st.subheader("Évolution de l’adoption")
-            st.info("Aucune donnée disponible pour afficher l’évolution de l’adoption.")
+            st.subheader("Évolution de l’usage")
+            st.info("Non disponible")
+            st.caption("Aucune donnée observée sur la période sélectionnée.")
         else:
-            available_services = sorted(
-                unified_trend["service"]
-                .dropna()
-                .astype(str)
-                .unique()
-                .tolist()
-            )
-
-            kpi_mapping = {
-                "DAU": "dau",
-                "WAU": "wau",
-                "MAU": "mau",
-                "Événements": "events",
-                "Fréquence": "frequency",
-            }
-
             is_all_services_view = (selected_service == "Tous les services")
 
-            evolution_title_col, metric_popover_col, interpretation_popover_col = st.columns(
-                [3, 1, 1],
+            evolution_title_col, metric_select_col = st.columns(
+                [3, 1],
                 vertical_alignment="center",
             )
 
             with evolution_title_col:
-                st.subheader("Évolution de l’adoption")
+                st.subheader("Évolution de l’usage")
+                st.caption("Suivre l'activité dans le temps et repérer les variations.")
 
-            with metric_popover_col:
-                with st.popover("Choisir métriques"):
-                    trend_selected_service = st.selectbox(
-                        "Service",
-                        ["Tous les services", *available_services],
-                        key="unified_trend_service",
-                    )
+            with metric_select_col:
+                metric_options = {
+                    "Utilisateurs actifs": "dau",
+                    "Événements observés": "events"
+                }
+                selected_metric_label = st.selectbox(
+                    "Métrique",
+                    options=list(metric_options.keys()),
+                    index=0,
+                    key="unified_trend_kpi",
+                    label_visibility="collapsed"
+                )
 
-                    selected_metric_label = st.selectbox(
-                        "KPI",
-                        list(kpi_mapping.keys()),
-                        key="unified_trend_kpi",
-                    )
-
-            selected_kpi = kpi_mapping[selected_metric_label]
+            selected_kpi = metric_options[selected_metric_label]
 
             evolution_interpretation = prepare_evolution_interpretation(
                 unified_trend,
-                trend_selected_service,
+                selected_service,
                 selected_metric_label,
                 selected_kpi,
             )
@@ -2378,19 +2400,18 @@ if selected_tab == "Vue d'ensemble":
                 prepare_evolution_recommendations(
                     evolution_data=unified_trend,
                     selected_metric=selected_metric_label,
-                    selected_service=trend_selected_service,
+                    selected_service=selected_service,
                 ),
             )
-
-            with interpretation_popover_col:
-                with st.popover("💡 Interprétation IA"):
-                    render_interpretation_popover(evolution_interpretation)
+            
+            with st.popover("💡 Interprétation IA"):
+                render_interpretation_popover(evolution_interpretation)
 
             trend_to_display = unified_trend.copy()
 
-            if trend_selected_service != "Tous les services":
+            if not is_all_services_view:
                 trend_to_display = trend_to_display[
-                    trend_to_display["service"] == trend_selected_service
+                    trend_to_display["service"] == selected_service
                 ]
 
             if selected_period == "Dernière date disponible":
@@ -2404,36 +2425,38 @@ if selected_tab == "Vue d'ensemble":
                     st.info("Une seule journée est sélectionnée.\n"
                             "Une tendance temporelle ne peut pas être analysée.")
             else:
-                chart = (
-                    alt.Chart(trend_to_display)
-                    .mark_line(point=True, strokeWidth=2.5)
-                    .encode(
-                        x=alt.X("date:T", title=""),
-                        y=alt.Y(f"{selected_kpi}:Q", title=selected_kpi),
-                        color=alt.Color(
-                            "service:N",
-                            title=None,
-                            scale=alt.Scale(
-                                domain=["Booking", "Learning Center", "Ecommerce Demo"],
-                                range=["#1f77d0", "#ff8a00", "#2ca02c"],
-                            ),
-                            legend=alt.Legend(
-                                orient="bottom",
-                                direction="horizontal",
-                                labelFontSize=14,
-                                symbolSize=120,
-                            ),
-                        ),
-                        tooltip=[
-                            alt.Tooltip("date:T", title="Date"),
-                            alt.Tooltip("service:N", title="Service"),
-                            alt.Tooltip(f"{selected_kpi}:Q", title=selected_metric_label),
-                        ],
+                if trend_to_display.empty:
+                    st.info("Non disponible")
+                    st.caption("Aucune donnée observée sur la période sélectionnée pour ce service.")
+                else:
+                    fig = px.line(
+                        trend_to_display,
+                        x="date",
+                        y=selected_kpi,
+                        color="service",
+                        labels={"date": "Date", selected_kpi: selected_metric_label, "service": "Service"},
+                        markers=True,
+                        color_discrete_map={
+                            "Booking": "#1f77d0",
+                            "Learning Center": "#ff8a00",
+                            "Ecommerce Demo": "#2ca02c"
+                        }
                     )
-                    .properties(height=360)
-                )
-
-                st.altair_chart(chart, width="stretch")
+                    
+                    fig.update_layout(
+                        height=360,
+                        margin=dict(l=0, r=0, t=20, b=0),
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=-0.2,
+                            xanchor="center",
+                            x=0.5,
+                            title=""
+                        )
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
     dept_df = departmental_breakdown(filtered_usage)
