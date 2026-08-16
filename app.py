@@ -2058,12 +2058,20 @@ if selected_tab == "Vue d'ensemble":
                             "action": None
                         })
 
-            signals.append({
-                "type": "info",
-                "title": "Taux d'adoption non disponible",
-                "message": "Population éligible manquante.",
-                "action": "Action : compléter le référentiel des utilisateurs éligibles."
-            })
+            if selected_service.lower() == "booking":
+                signals.append({
+                    "type": "info",
+                    "title": "Adoption à analyser par module",
+                    "message": "La population éligible est disponible par module. Aucun taux global Booking n'est calculé afin d'éviter de sommer des populations qui peuvent se chevaucher.",
+                    "action": "Consulter l'adoption par module et par campus."
+                })
+            else:
+                signals.append({
+                    "type": "info",
+                    "title": "Taux d'adoption non disponible",
+                    "message": "Population éligible manquante.",
+                    "action": "Action : compléter le référentiel des utilisateurs éligibles."
+                })
         
             dept_df = departmental_breakdown(filtered_usage)
             if not dept_df.empty and "department" in dept_df.columns:
