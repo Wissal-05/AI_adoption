@@ -1,64 +1,44 @@
-"""Module IA — fabrique de moteurs d'assistant.
-
-Utilise la variable de configuration `settings.assistant_engine` pour
-instancier le moteur approprié :
-  - "keyword"  → KeywordEngine (défaut, sans dépendance externe)
-  - "llm"      → LLMEngine (nécessite LangChain + clé API)
-
-Usage dans app.py :
-    from adoption_analytics.ai import get_assistant
-    assistant = get_assistant()
-    response = assistant.answer(question, context={"usage_df": df, "web_logs_df": logs_df})
-"""
+"""Module IA — fabrique de moteurs d'assistant."""
 
 from adoption_analytics.ai.port import AssistantPort
 from adoption_analytics.ai.keyword_engine import KeywordEngine
+from config.settings import settings
 
 
 def get_assistant() -> AssistantPort:
-    """Instancie et retourne le moteur d'assistant configuré.
+    """Conserve pour la rétrocompatibilité stricte si nécessaire ailleurs,
+    bien que app.py utilisera plutôt create_assistant_engine."""
+    return KeywordEngine()
 
-    Le moteur est sélectionné via `settings.assistant_engine` (variable d'env
-    ASSISTANT_ENGINE). Valeurs supportées : "keyword" (défaut), "llm".
+def create_assistant_engine(dashboard_service=None):
+    """Factory pour l'Assistant IA (Groq LLM ou fallback Keyword).
 
-    Returns:
-        Instance de AssistantPort prête à l'emploi.
-
-    Raises:
-        ValueError: si le moteur configuré n'est pas reconnu.
+    Retourne une instance de LLMEngine si GROQ_API_KEY est présente
+    et que le settings.assistant_engine == 'llm' (ou si la clé est juste là pour ce MVP).
+    Sinon, retourne KeywordEngine.
     """
-    from config.settings import settings
-
-    engine = settings.assistant_engine.lower()
-
-    if engine == "keyword":
-        return KeywordEngine()
-
-    if engine == "llm":
+    if settings.assistant_engine.lower() == "llm" and settings.groq_api_key:
         try:
-            from adoption_analytics.ai.llm_engine import LLMEngine  # type: ignore[import]
-            return LLMEngine()
-        except ImportError as exc:
-            raise ImportError(
-                "Le moteur 'llm' nécessite des dépendances supplémentaires. "
-                "Vérifiez que langchain et langchain-openai sont installés, "
-                "et que OPENAI_API_KEY est défini dans votre .env."
-            ) from exc
+            from adoption_analytics.ai.llm_engine import LLMEngine
+            from adoption_analytics.ai.tool_registry import ToolRegistry
 
-    raise ValueError(
-        f"Moteur d'assistant inconnu : '{engine}'. "
-        f"Valeurs supportées : 'keyword', 'llm'."
-    )
+            # On instancie le registry avec le service fourni par l'app Streamlit
+            registry = ToolRegistry(dashboard_service)
+            return LLMEngine(registry=registry)
+        except Exception as e:
+            # En cas d'erreur d'import ou de clé, on retourne le fallback silencieusement
+            # (ou on pourrait logger l'erreur). L'UI signalera le mode déterministe.
+            pass
+
+    # Fallback par défaut (soit configuré sur keyword, soit pas de clé, soit erreur)
+    return KeywordEngine()
 
 
 # Fonction de compatibilité ascendante avec l'ancien assistant.py
 def answer_question(question: str, usage_df, web_logs_df) -> str:
-    """Alias de compatibilité pour l'ancien assistant.answer_question().
-
-    Préférer get_assistant().answer(question, context={...}) dans le nouveau code.
-    """
+    """Alias de compatibilité pour l'ancien assistant.answer_question()."""
     import pandas as pd
-    assistant = get_assistant()
+    assistant = KeywordEngine()
     return assistant.answer(
         question,
         context={
@@ -67,5 +47,4 @@ def answer_question(question: str, usage_df, web_logs_df) -> str:
         },
     )
 
-
-__all__ = ["AssistantPort", "KeywordEngine", "get_assistant", "answer_question"]
+__all__ = ["AssistantPort", "KeywordEngine", "get_assistant", "answer_question", "create_assistant_engine"]

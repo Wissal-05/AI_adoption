@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 from adoption_analytics.services.dashboard_service import DashboardService
 from adoption_analytics.services.security_service import SecurityService
 from adoption_analytics.services.data_freshness import DataFreshnessService
-from adoption_analytics.ai import get_assistant
+from adoption_analytics.ai import create_assistant_engine, KeywordEngine
 from adoption_analytics.metrics.learning_center import prepare_daily_trend
 from adoption_analytics.metrics.adoption import (
     compute_usage_frequency,
@@ -2741,8 +2741,10 @@ if selected_tab == "Booking":
 
 if selected_tab == "Assistant IA":
     st.subheader("Assistant IA d’adoption")
-    assistant = get_assistant()
 
+    # Instance du moteur (LLMEngine ou KeywordEngine en fallback)
+    assistant = create_assistant_engine(dashboard_service)
+    is_keyword = isinstance(assistant, KeywordEngine)
 
     if "assistant_chat_history" not in st.session_state:
         st.session_state.assistant_chat_history = [
@@ -2750,8 +2752,8 @@ if selected_tab == "Assistant IA":
                 "role": "assistant",
                 "content": (
                     "Bonjour, je peux répondre aux questions sur les KPI "
-                    "d’adoption : DAU, WAU, MAU, évolution, fréquence "
-                    "d’utilisation, services sous-utilisés et routes suspectes."
+                    "d’adoption. Vous pouvez m'interroger sur le MAU, les tendances "
+                    "d'usage, ou l'adoption par campus."
                 ),
             }
         ]
@@ -2759,7 +2761,9 @@ if selected_tab == "Assistant IA":
     col1, col2 = st.columns([3, 1])
 
     with col1:
-        st.markdown("Posez une question sur les données filtrées dans le dashboard.")
+        st.markdown("Interrogez les indicateurs d'adoption en langage naturel.")
+        if is_keyword:
+            st.caption("⚠️ Mode de secours déterministe (mots-clés) actif.")
 
     with col2:
         if st.button("Nouvelle conversation"):
@@ -2777,10 +2781,18 @@ if selected_tab == "Assistant IA":
     for message in st.session_state.assistant_chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            if "limitations" in message and message["limitations"]:
+                with st.expander("Détails de l'analyse"):
+                    if "tool_calls" in message and message["tool_calls"]:
+                        st.markdown(f"**Outils utilisés :** {', '.join(message['tool_calls'])}")
+                    st.markdown("**Limitations :**")
+                    for limit in message["limitations"]:
+                        st.markdown(f"- {limit}")
+            elif "tool_calls" in message and message["tool_calls"]:
+                with st.expander("Détails de l'analyse"):
+                    st.markdown(f"**Outils utilisés :** {', '.join(message['tool_calls'])}")
 
-    question = st.chat_input(
-        "Posez votre question sur les KPI d’adoption..."
-    )
+    question = st.chat_input("Posez votre question sur les KPI d’adoption...")
 
     if question:
         st.session_state.assistant_chat_history.append(
@@ -2789,52 +2801,42 @@ if selected_tab == "Assistant IA":
                 "content": question,
             }
         )
-
-        source_key_by_service = {
-            "Learning Center": "learning_center",
-            "Booking": "booking",
-        }
-
-        if isinstance(selected_services, str):
-            selected_service_list = [selected_services]
-        else:
-            selected_service_list = list(selected_services)
-
-        if len(selected_service_list) == 1:
-            selected_source_key = source_key_by_service.get(
-                selected_service_list[0]
-            )
-        else:
-            selected_source_key = None
-
-        if selected_source_key is not None:
-            selected_daily_kpis = data.raw_by_source.get(
-                selected_source_key,
-                {},
-            ).get(
-                "daily_kpis",
-                pd.DataFrame(),
-            )
-        else:
-            selected_daily_kpis = pd.DataFrame()
+        # Display user message immediately
+        with st.chat_message("user"):
+            st.markdown(question)
 
         with st.spinner("Analyse en cours..."):
-            response = assistant.answer(
-                question,
-                context={
-                    "usage_df": filtered_usage,
-                    "web_logs_df": data.web_logs,
-                    "daily_kpis": selected_daily_kpis,
-                },
-            )
+            if is_keyword:
+                # Fallback keyword engine (using global data without filtering by service to match new paradigm)
+                response_text = assistant.answer(
+                    question,
+                    context={
+                        "usage_df": data.usage_events,
+                        "web_logs_df": data.web_logs,
+                    },
+                )
+                new_msg = {
+                    "role": "assistant",
+                    "content": response_text
+                }
+            else:
+                resp = assistant.chat(question)
+                if resp.error:
+                    new_msg = {
+                        "role": "assistant",
+                        "content": "Désolé, l'Assistant IA est temporairement indisponible suite à une erreur technique.",
+                        "error": resp.error
+                    }
+                else:
+                    new_msg = {
+                        "role": "assistant",
+                        "content": resp.answer,
+                        "tool_calls": resp.tool_calls,
+                        "limitations": resp.limitations
+                    }
 
-        st.session_state.assistant_chat_history.append(
-            {
-                "role": "assistant",
-                "content": response,
-            }
-        )
-
+        st.session_state.assistant_chat_history.append(new_msg)
         st.rerun()
+
 # ── Onglet Architecture ───────────────────────────────────────────────────────
 

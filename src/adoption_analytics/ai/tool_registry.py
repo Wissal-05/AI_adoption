@@ -61,11 +61,11 @@ class ToolRegistry:
 
         self.register(Tool(
             name="get_adoption_by_module",
-            description="Récupère l'adoption par module pour un service donné.",
+            description="Récupère l'adoption par module pour un service donné. Use service='Booking' for Booking modules such as Housing, Transport, Catering, Access, Repair, Admin or Other.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "service": {"type": "string", "description": "Nom du service à analyser (ex: 'Booking')"},
+                    "service": {"type": "string", "description": "Nom du service à analyser (ex: 'Booking'). Si l'utilisateur demande Housing, Transport, Catering, Access, Repair, Admin ou Other, utiliser 'Booking' en tant que service."},
                     "module": {"type": ["string", "null"], "description": "Nom du module spécifique optionnel"},
                     "reference_date": {"type": ["string", "null"], "description": "Date de référence optionnelle au format YYYY-MM-DD"},
                     "window_days": {"type": "integer", "description": "Fenêtre de jours (défaut 30)"}
@@ -77,11 +77,11 @@ class ToolRegistry:
 
         self.register(Tool(
             name="get_adoption_by_campus",
-            description="Récupère l'adoption par campus pour un module donné d'un service.",
+            description="Récupère l'adoption par campus pour un module donné d'un service. Use service='Booking' for Booking modules such as Housing, Transport, Catering, Access, Repair, Admin or Other.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "service": {"type": "string", "description": "Nom du service à analyser (ex: 'Booking')"},
+                    "service": {"type": "string", "description": "Nom du service à analyser (ex: 'Booking'). Si l'utilisateur demande Housing, Transport, Catering, Access, Repair, Admin ou Other, utiliser 'Booking' en tant que service."},
                     "module": {"type": "string", "description": "Nom du module (ex: 'Housing')"},
                     "campus": {"type": ["string", "null"], "description": "Nom du campus spécifique optionnel"},
                     "reference_date": {"type": ["string", "null"], "description": "Date de référence optionnelle au format YYYY-MM-DD"},

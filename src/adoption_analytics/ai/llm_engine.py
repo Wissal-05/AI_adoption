@@ -28,6 +28,7 @@ Règles obligatoires :
 7. Répondre en français par défaut.
 8. Être concis et orienté décision.
 9. Mentionner une limite méthodologique lorsqu'elle affecte l'interprétation.
+10. Les noms Housing, Transport, Catering, Access, Repair, Admin et Other désignent des modules du service Booking. Lorsqu'un utilisateur demande leur adoption sans préciser le service, utiliser Booking comme service.
 """
 
 
