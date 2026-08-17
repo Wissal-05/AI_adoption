@@ -675,15 +675,15 @@ def prepare_kpi_interpretation(
             freq_str = f"{avg_days}".replace(".", ",")
             observation_freq = f"avec en moyenne {freq_str} jours actifs par utilisateur actif sur les 30 derniers jours."
         else:
-            observation_freq = "avec une fréquence d'usage non disponible."
+            observation_freq = "La fréquence d'usage comparable n'est pas disponible avec les métriques actuelles."
     else:
-        observation_freq = f"et une fréquence moyenne de {frequency:.1f} événements par utilisateur actif."
+        observation_freq = "La fréquence d'usage comparable n'est pas disponible avec les métriques actuelles."
 
     observation = (
         f"Les KPI affichés couvrent {service_scope}. "
         f"Ils indiquent {dau:,} utilisateurs actifs quotidiens, "
-        f"{wau:,} utilisateurs actifs hebdomadaires, "
-        f"{mau:,} utilisateurs actifs mensuels, "
+        f"{wau:,} utilisateurs actifs hebdomadaires et "
+        f"{mau:,} utilisateurs actifs mensuels. "
         f"{observation_freq}"
     )
 
@@ -821,128 +821,7 @@ def prepare_advanced_kpis_interpretation(
         ),
     }
 
-def get_source_values(data: pd.DataFrame) -> set[str]:
-    """Retourne les valeurs de source disponibles dans un dataframe."""
 
-    if data.empty or "source" not in data.columns:
-        return set()
-
-    return set(
-        data["source"]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-
-def has_matomo_live_source(data: pd.DataFrame) -> bool:
-    """Indique si le dataframe contient des données détaillées Matomo Live."""
-
-    return "matomo_live" in get_source_values(data)
-
-
-def has_matomo_source(data: pd.DataFrame) -> bool:
-    """Indique si le dataframe contient des données provenant de Matomo."""
-
-    sources = get_source_values(data)
-
-    return any(source.startswith("matomo") for source in sources)
-
-
-def prepare_matomo_live_journey_preview(
-    ecommerce_usage: pd.DataFrame,
-    max_rows: int = 10,
-) -> pd.DataFrame:
-    """Prépare un aperçu lisible des parcours visiteurs Matomo Live."""
-
-    required_columns = {"source", "user_id", "session_id", "action", "page"}
-
-    if ecommerce_usage.empty or not required_columns.issubset(ecommerce_usage.columns):
-        return pd.DataFrame()
-
-    live_events = ecommerce_usage[
-        ecommerce_usage["source"]
-        .fillna("")
-        .astype(str)
-        .str.lower()
-        .eq("matomo_live")
-    ].copy()
-
-    if live_events.empty:
-        return pd.DataFrame()
-
-    if "event_timestamp" in live_events.columns:
-        live_events["event_timestamp"] = pd.to_datetime(
-            live_events["event_timestamp"],
-            errors="coerce",
-        )
-        live_events = live_events.sort_values(
-            ["session_id", "event_timestamp"],
-            na_position="last",
-        )
-    else:
-        live_events = live_events.sort_values(["session_id"])
-
-    rows = []
-
-    for (user_id, session_id), session_events in live_events.groupby(
-        ["user_id", "session_id"],
-        dropna=False,
-    ):
-        pages = (
-            session_events["page"]
-            .fillna("Non renseigné")
-            .astype(str)
-            .replace({"": "Non renseigné"})
-            .tolist()
-        )
-
-        actions = (
-            session_events["action"]
-            .fillna("Non renseigné")
-            .astype(str)
-            .replace({"": "Non renseigné"})
-            .tolist()
-        )
-
-        row = {
-            "Utilisateur": user_id,
-            "Session": session_id,
-            "Nb actions": len(session_events),
-            "Pages distinctes": session_events["page"].nunique(),
-            "Parcours pages": "  ".join(pages[:6]),
-            "Actions": "  ".join(actions[:6]),
-        }
-
-        if "event_timestamp" in session_events.columns:
-            start_time = session_events["event_timestamp"].min()
-            end_time = session_events["event_timestamp"].max()
-
-            row["Début"] = (
-                start_time.strftime("%Y-%m-%d %H:%M:%S")
-                if pd.notna(start_time)
-                else "Non renseigné"
-            )
-            row["Fin"] = (
-                end_time.strftime("%Y-%m-%d %H:%M:%S")
-                if pd.notna(end_time)
-                else "Non renseigné"
-            )
-
-        rows.append(row)
-
-    if not rows:
-        return pd.DataFrame()
-
-    journey_df = pd.DataFrame(rows)
-
-    return (
-        journey_df
-        .sort_values("Nb actions", ascending=False)
-        .head(max_rows)
-        .reset_index(drop=True)
-    )
 
 
 # ── RECOMMANDATIONS HELPERS ─────────────────────────────────────────────
@@ -992,7 +871,7 @@ def add_recommendations_to_insight(
 
     return enriched_insight
 
-def prepare_kpi_recommendations(metrics: dict) -> list[str]:
+def prepare_kpi_recommendations(metrics: dict, is_booking: bool = False) -> list[str]:
     """Génère des recommandations opérationnelles à partir des KPI globaux."""
 
     recommendations = []
@@ -1023,21 +902,27 @@ def prepare_kpi_recommendations(metrics: dict) -> list[str]:
             frequency_value = float(frequency)
             if frequency_value > 500:
                 recommendations.append(
-                    "Analyser les profils ou services à très forte fréquence afin de vérifier "
+                    "Analyser les profils ou services à très forte intensité d'événements afin de vérifier "
                     "s'il s'agit d'un usage métier normal, d'un processus automatisé ou d'un comportement atypique."
                 )
             elif frequency_value < 5:
                 recommendations.append(
-                    "Identifier les freins d'usage possibles : faible fréquence, faible visibilité du service, "
+                    "Identifier les freins d'usage possibles : faible volume d'interactions, faible visibilité du service, "
                     "besoin de formation ou parcours utilisateur trop complexe."
                 )
         except (TypeError, ValueError):
             pass
 
-    recommendations.append(
-        "Compléter la population éligible par service pour transformer les utilisateurs actifs "
-        "en vrai taux d'adoption."
-    )
+    if is_booking:
+        recommendations.append(
+            "Analyser l'adoption par module et par campus afin d'identifier les écarts "
+            "entre populations éligibles et utilisateurs actifs."
+        )
+    else:
+        recommendations.append(
+            "Compléter la population éligible par service pour transformer les utilisateurs actifs "
+            "en vrai taux d'adoption."
+        )
 
     return recommendations
 
@@ -2108,7 +1993,14 @@ if selected_tab == "Vue d'ensemble":
                             "action": None
                         })
 
-            if selected_service.lower() == "booking":
+            if selected_service == "Tous les services":
+                signals.append({
+                    "type": "info",
+                    "title": "Adoption globale non consolidée",
+                    "message": "Les populations éligibles et les identités utilisateurs ne sont pas homogènes entre les services. Aucun taux global d'adoption n'est calculé.",
+                    "action": "Analyser l'adoption service par service."
+                })
+            elif selected_service.lower() == "booking":
                 signals.append({
                     "type": "info",
                     "title": "Adoption à analyser par module",
@@ -2224,7 +2116,7 @@ if selected_tab == "Vue d'ensemble":
             "<p style='font-size: 0.9em; color: gray; font-style: italic; margin-top: 12px;'>"
             "Les utilisateurs ne sont pas agrégés entre services car les "
             "sources ne garantissent pas une identité utilisateur commune. "
-            "Les KPI sont donc présentés séparément par service."
+            "Les KPI sont présentés séparément par service et à leur propre dernière date disponible."
             "</p>",
             unsafe_allow_html=True
         )
@@ -2287,7 +2179,7 @@ if selected_tab == "Vue d'ensemble":
                 is_booking=is_booking,
             )
 
-            next_actions = prepare_kpi_recommendations(metrics)
+            next_actions = prepare_kpi_recommendations(metrics, is_booking=is_booking)
 
             st.markdown("### Insight stratégique")
 
@@ -2740,132 +2632,7 @@ if selected_tab == "Vue d'ensemble":
                     },
                 )
 
-    # ── Synthèse Matomo / Ecommerce Demo ───────────────────────────────────────
 
-    ecommerce_usage = filtered_usage[
-        filtered_usage["service"].astype(str).str.lower().eq("ecommerce demo")
-    ].copy()
-
-    if not ecommerce_usage.empty:
-        ecommerce_is_live = has_matomo_live_source(ecommerce_usage)
-        ecommerce_has_matomo = has_matomo_source(ecommerce_usage)
-
-        with st.container(border=True):
-            st.subheader("Synthèse web analytics — Ecommerce Demo")
-
-            if ecommerce_is_live:
-                st.caption(
-                    "Données détaillées extraites via Matomo "
-                    "Live.getLastVisitsDetails et normalisées vers le modèle commun."
-                )
-                st.success(
-                    "Mode d'extraction actif : RAW Matomo Live — visites, "
-                    "sessions, actionDetails et pages consultées sont disponibles."
-                )
-            elif ecommerce_has_matomo:
-                st.caption(
-                    "Données collectées depuis Matomo et normalisées vers le modèle commun. "
-                    "Les événements proviennent actuellement d'un export agrégé par page."
-                )
-                st.warning(
-                    "Mode d'extraction actif : agrégé par page — suffisant pour "
-                    "les top pages, mais limité pour l'analyse détaillée des parcours visiteurs."
-                )
-            else:
-                st.caption(
-                    "Données Ecommerce Demo normalisées vers le modèle commun."
-                )
-
-            ecommerce_total_events = len(ecommerce_usage)
-            ecommerce_users = ecommerce_usage["user_id"].nunique()
-            ecommerce_sessions = (
-                ecommerce_usage["session_id"].nunique()
-                if "session_id" in ecommerce_usage.columns
-                else 0
-            )
-            ecommerce_pages = (
-                ecommerce_usage["page"].nunique()
-                if "page" in ecommerce_usage.columns
-                else 0
-            )
-
-            ecommerce_col1, ecommerce_col2, ecommerce_col3, ecommerce_col4 = st.columns(4)
-
-            ecommerce_col1.metric("Événements web", f"{ecommerce_total_events:,}")
-            ecommerce_col2.metric("Visiteurs observés", f"{ecommerce_users:,}")
-            ecommerce_col3.metric("Sessions observées", f"{ecommerce_sessions:,}")
-            ecommerce_col4.metric("Pages suivies", f"{ecommerce_pages:,}")
-
-            if "action" in ecommerce_usage.columns:
-                action_summary = (
-                    ecommerce_usage["action"]
-                    .fillna("Non renseigné")
-                    .astype(str)
-                    .value_counts()
-                    .reset_index()
-                )
-                action_summary.columns = ["Type d'action", "Événements"]
-
-                st.markdown("**Répartition des actions web**")
-                st.dataframe(
-                    action_summary,
-                    hide_index=True,
-                    width="stretch",
-                )
-
-            if ecommerce_is_live:
-                journey_preview = prepare_matomo_live_journey_preview(ecommerce_usage)
-
-                st.markdown("**Aperçu des parcours visiteurs Matomo Live**")
-
-                if journey_preview.empty:
-                    st.info(
-                        "Les données Matomo Live sont détectées, mais aucun parcours "
-                        "visiteur exploitable n'a été trouvé dans les colonnes disponibles."
-                    )
-                else:
-                    st.dataframe(
-                        journey_preview,
-                        hide_index=True,
-                        width="stretch",
-                    )
-
-                st.info(
-                    "Lecture : ces données proviennent des actionDetails détaillés "
-                    "de Matomo. Elles permettent une analyse plus fine des parcours "
-                    "visiteurs. Les limites métier restent toutefois les mêmes : "
-                    "population éligible, mapping entité/campus et seuils d'adoption "
-                    "ne sont pas encore disponibles."
-                )
-                
-                st.markdown("**Recommandations Matomo Live**")
-                render_recommendations(
-                    [
-                        "Analyser les parcours les plus fréquents pour identifier les pages d'entrée, "
-                        "les pages critiques et les éventuels points de sortie.",
-                        "Surveiller les pages produit les plus consultées afin de comprendre les centres "
-                        "d'intérêt utilisateurs.",
-                        "Vérifier le tunnel checkout pour détecter d'éventuels blocages ou abandons.",
-                        "Compléter les données Matomo par un référentiel métier pour distinguer simple navigation "
-                        "et adoption réelle.",
-                    ]
-                )
-            elif ecommerce_has_matomo:
-                st.info(
-                    "Limite actuelle : les données Matomo sont issues d'un export agrégé. "
-                    "Pour obtenir de vrais parcours utilisateur, il faut utiliser "
-                    "l'API Live.getLastVisitsDetails."
-                )
-                
-                st.markdown("**Recommandations Matomo**")
-                render_recommendations(
-                    [
-                        "Passer à l'extraction RAW via Live.getLastVisitsDetails pour reconstruire "
-                        "les parcours visiteurs.",
-                        "Utiliser les top pages agrégées pour identifier les sections les plus consultées.",
-                        "Compléter l'analyse avec des objectifs de conversion et des actions métier.",
-                    ]
-                )
 
     # ── Données manquantes / Qualité des données ──────────────────────────────
 

@@ -21,6 +21,10 @@ def test_global_overview_no_naive_dau_mau():
     
     service = DashboardService()
     
+    from unittest.mock import MagicMock
+    service.get_service_extended_analytics = MagicMock()
+    service.get_service_extended_analytics.return_value.usage = {"dau": 2, "wau": 2, "mau": 2}
+    
     overview = service.get_global_overview(filtered_usage, available_services)
     
     # 1. B. Tous les services : aucun DAU/WAU/MAU utilisateur global naïf n'est produit

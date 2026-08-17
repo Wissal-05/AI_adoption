@@ -127,14 +127,27 @@ class DashboardService:
             srv_df = filtered_usage[filtered_usage["service"] == srv].copy()
             srv_kpi_df = kpi_usage[kpi_usage["service"] == srv].copy()
             if not srv_df.empty:
-                metrics = AdoptionMetricsService.compute(srv_kpi_df, reference_date=reference_date)
                 max_date = srv_df["event_timestamp"].max()
+                
+                if srv.lower() == "booking":
+                    extended = self.get_service_extended_analytics(srv, reference_date=reference_date)
+                    if extended and extended.usage:
+                        dau = extended.usage.get("dau", 0) or 0
+                        wau = extended.usage.get("wau", 0) or 0
+                        mau = extended.usage.get("mau", 0) or 0
+                    else:
+                        dau = wau = mau = 0
+                else:
+                    metrics = AdoptionMetricsService.compute(srv_kpi_df, reference_date=reference_date)
+                    dau = metrics.get("dau", 0) or 0
+                    wau = metrics.get("wau", 0) or 0
+                    mau = metrics.get("mau", 0) or 0
+
                 table_data.append({
                     "Service": srv,
-                    "DAU": int(metrics.get("dau", 0) or 0),
-                    "WAU": int(metrics.get("wau", 0) or 0),
-                    "MAU": int(metrics.get("mau", 0) or 0),
-                    "Fréquence": round(float(metrics.get("avg_events_per_active_user", 0) or 0), 1),
+                    "DAU": int(dau),
+                    "WAU": int(wau),
+                    "MAU": int(mau),
                     "Dernière donnée disponible": max_date.strftime("%d/%m/%Y") if pd.notnull(max_date) else "N/A"
                 })
                 
