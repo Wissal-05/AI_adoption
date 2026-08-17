@@ -270,14 +270,17 @@ def classify_interaction_type(
     return "Événement d’usage"
 
 
+from adoption_analytics.metrics.interactions import compute_top_interactions
+
 def prepare_unified_top_interactions_table(
     usage_df: pd.DataFrame,
+    service: str,
     web_logs_df: pd.DataFrame | None = None,
     top_n: int = 15,
     measure: str = "Utilisateurs distincts",
 ) -> pd.DataFrame:
-    """Prépare une table commune des interactions les plus fréquentes."""
-
+    """Prépare une table commune des interactions les plus fréquentes via le helper partagé."""
+    
     display_columns = [
         "Service",
         "Type d’interaction",
@@ -287,213 +290,38 @@ def prepare_unified_top_interactions_table(
         "Part des événements (%)",
         "Statut données",
     ]
-
-    rows = []
-
-    if usage_df.empty or "service" not in usage_df.columns:
-        return pd.DataFrame(columns=display_columns)
-
-    services_in_scope = set(
-        usage_df["service"].dropna().astype(str).unique().tolist()
-    )
-
-    # Services normalisés : Booking, Ecommerce Demo, futures sources usage
-    usage_services = sorted(
-        usage_df["service"].dropna().astype(str).unique().tolist()
-    )
-
-    for service in usage_services:
-        # Learning Center est traité avec les vrais web logs plus bas.
-        if service.lower() == "learning center":
-            continue
-
-        service_events = usage_df[
-            usage_df["service"].astype(str).str.lower().eq(service.lower())
-        ].copy()
-
-        if service_events.empty:
-            continue
-
-        interaction_column = None
-
-        # Pour Matomo / Ecommerce Demo, la page est plus informative que l'action.
-        if (
-            "page" in service_events.columns
-            and service_events["page"].dropna().astype(str).str.strip().ne("").any()
-        ):
-            interaction_column = "page"
-        elif (
-            "action" in service_events.columns
-            and service_events["action"].dropna().astype(str).str.strip().ne("").any()
-        ):
-            interaction_column = "action"
-
-        if interaction_column is None:
-            continue
-
-        service_events["interaction"] = (
-            service_events[interaction_column]
-            .fillna("Non renseigné")
-            .astype(str)
-            .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
-        )
-
-        if "action" not in service_events.columns:
-            service_events["action"] = None
-
-        service_events["interaction_type"] = service_events.apply(
-            lambda row: classify_interaction_type(
-                service,
-                row["interaction"],
-                row.get("action"),
-            ),
-            axis=1,
-        )
-
-        if "user_id" in service_events.columns:
-            grouped = (
-                service_events.groupby(["interaction", "interaction_type"])
-                .agg(
-                    events=("interaction", "size"),
-                    unique_users=("user_id", lambda x: x.nunique(dropna=True))
-                )
-                .reset_index()
-            )
-        else:
-            grouped = (
-                service_events.groupby(["interaction", "interaction_type"])
-                .size()
-                .reset_index(name="events")
-            )
-            grouped["unique_users"] = 0
-
-        total_events = grouped["events"].sum()
-
-        for _, row in grouped.iterrows():
-            interaction = row["interaction"]
-            interaction_type = row["interaction_type"]
-            events = int(row["events"])
-            unique_users = int(row.get("unique_users", 0))
-
-            rows.append(
-                {
-                    "Service": service,
-                    "Type d’interaction": interaction_type,
-                    "Interaction": interaction,
-                    "Utilisateurs distincts": unique_users,
-                    "Événements": events,
-                    "Part des événements (%)": round(
-                        events / total_events * 100,
-                        2,
-                    )
-                    if total_events
-                    else 0,
-                    "Statut données": (
-                        "Interaction non renseignée"
-                        if interaction == "Non renseigné"
-                        else "Disponible"
-                    ),
-                }
-            )
-
-    # Learning Center : vraies pages/routes depuis les logs web
-    if (
-        "Learning Center" in services_in_scope
-        and web_logs_df is not None
-        and not web_logs_df.empty
-    ):
-        lc_logs = web_logs_df.copy()
-
-        if "service" in lc_logs.columns:
-            lc_logs = lc_logs[
-                lc_logs["service"].astype(str).str.lower().eq("learning center")
-            ]
-
-        if "analytics_eligible" in lc_logs.columns:
-            lc_logs = lc_logs[lc_logs["analytics_eligible"].fillna(False)]
-        else:
-            if "is_static" in lc_logs.columns:
-                lc_logs = lc_logs[~lc_logs["is_static"].fillna(False)]
-            if "is_bot" in lc_logs.columns:
-                lc_logs = lc_logs[~lc_logs["is_bot"].fillna(False)]
-
-        interaction_column = None
-
-        for candidate_column in ["page", "route", "path"]:
-            if candidate_column in lc_logs.columns:
-                interaction_column = candidate_column
-                break
-
-        if interaction_column is not None and not lc_logs.empty:
-            lc_logs["interaction"] = (
-                lc_logs[interaction_column]
-                .fillna("Non renseigné")
-                .astype(str)
-                .replace({"": "Non renseigné", "Unknown": "Non renseigné"})
-            )
-
-            if "source_ip" in lc_logs.columns:
-                lc_grouped = (
-                    lc_logs.groupby("interaction")
-                    .agg(
-                        events=("interaction", "size"),
-                        unique_users=("source_ip", lambda x: x.nunique(dropna=True))
-                    )
-                    .reset_index()
-                )
-            else:
-                lc_grouped = (
-                    lc_logs.groupby("interaction")
-                    .size()
-                    .reset_index(name="events")
-                )
-                lc_grouped["unique_users"] = 0
-
-            lc_total = lc_grouped["events"].sum()
-
-            for _, row in lc_grouped.iterrows():
-                interaction = row["interaction"]
-                events = int(row["events"])
-                unique_users = int(row.get("unique_users", 0))
-
-                rows.append(
-                    {
-                        "Service": "Learning Center",
-                        "Type d’interaction": classify_interaction_type(
-                            "Learning Center",
-                            interaction,
-                        ),
-                        "Interaction": interaction,
-                        "Utilisateurs distincts": unique_users,
-                        "Événements": events,
-                        "Part des événements (%)": round(
-                            events / lc_total * 100,
-                            2,
-                        )
-                        if lc_total
-                        else 0,
-                        "Statut données": (
-                            "Interaction non renseignée"
-                            if interaction == "Non renseigné"
-                            else "Disponible"
-                        ),
-                    }
-                )
-
-    if not rows:
-        return pd.DataFrame(columns=display_columns)
-
-    result = pd.DataFrame(rows)
-
-    sort_column = "Utilisateurs distincts" if measure in ["Utilisateurs distincts", "Adresses IP distinctes"] else "Événements"
     
-    result = result.sort_values(
-        by=[sort_column, "Événements"],
-        ascending=[False, False],
-    ).head(top_n)
+    if service == "Tous les services":
+        return pd.DataFrame(columns=display_columns)
 
-    return result[display_columns].reset_index(drop=True)
-
+    df, reach_type, limitations = compute_top_interactions(
+        usage_df, 
+        web_logs_df, 
+        service=service, 
+        measure=measure, 
+        limit=top_n
+    )
+    
+    if df.empty:
+        return pd.DataFrame(columns=display_columns)
+        
+    rows = []
+    for _, row in df.iterrows():
+        interaction = str(row["interaction"])
+        # On délègue la classification avec action=None (la route/page suffit généralement)
+        interaction_type = classify_interaction_type(service, interaction, action=None)
+        
+        rows.append({
+            "Service": service,
+            "Type d’interaction": interaction_type,
+            "Interaction": interaction,
+            "Utilisateurs distincts": int(row["reach"]),
+            "Événements": int(row["events"]),
+            "Part des événements (%)": row["events_share_pct"],
+            "Statut données": "Interaction non renseignée" if interaction == "Non renseigné" else "Disponible"
+        })
+        
+    return pd.DataFrame(rows, columns=display_columns)
 def prepare_unified_data_quality_table(
     usage_df: pd.DataFrame,
     departmental_df: pd.DataFrame,
@@ -2584,6 +2412,7 @@ if selected_tab == "Vue d'ensemble":
 
             unified_top_interactions = prepare_unified_top_interactions_table(
                 filtered_usage,
+                service=selected_service,
                 web_logs_df=filtered_web_logs,
                 top_n=10,
                 measure=selected_measure
