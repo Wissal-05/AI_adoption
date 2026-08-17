@@ -65,90 +65,6 @@ def format_optional_percentage(value: float | None) -> str:
 
     return f"{value:.1f} %"
 
-def build_unified_adoption_trend(
-    usage_df: pd.DataFrame,
-    start_date: pd.Timestamp | None = None,
-    end_date: pd.Timestamp | None = None,
-    service_bounds: dict[str, tuple[pd.Timestamp, pd.Timestamp]] | None = None
-) -> pd.DataFrame:
-    """Construit une tendance quotidienne commune DAU / WAU / MAU / événements / fréquence par service."""
-
-    required_columns = {"event_timestamp", "user_id", "service"}
-    if usage_df.empty or not required_columns.issubset(usage_df.columns):
-        return pd.DataFrame(
-            columns=["date", "service", "dau", "wau", "mau", "events", "frequency"]
-        )
-
-    df = usage_df.copy()
-    df["event_timestamp"] = pd.to_datetime(df["event_timestamp"], errors="coerce")
-    df = df.dropna(subset=["event_timestamp", "user_id", "service"])
-
-    if df.empty:
-        return pd.DataFrame(
-            columns=["date", "service", "dau", "wau", "mau", "events", "frequency"]
-        )
-
-    df["date"] = df["event_timestamp"].dt.normalize()
-
-    rows = []
-
-    for service, service_df in df.groupby("service"):
-        service_df = service_df[["date", "user_id"]].copy()
-
-        daily_users = (
-            service_df.groupby("date")["user_id"]
-            .agg(lambda users: set(users.dropna()))
-            .to_dict()
-        )
-
-        daily_events = service_df.groupby("date").size().to_dict()
-
-        if service_bounds and service in service_bounds:
-            actual_min, actual_max = service_bounds[service]
-            if start_date is not None and end_date is not None:
-                eff_start = max(actual_min, start_date.normalize())
-                eff_end = min(actual_max, end_date.normalize())
-                if eff_start <= eff_end:
-                    unique_dates = pd.date_range(eff_start, eff_end)
-                else:
-                    unique_dates = pd.DatetimeIndex([])
-            else:
-                unique_dates = pd.date_range(actual_min, actual_max)
-        else:
-            if start_date is not None and end_date is not None:
-                unique_dates = pd.date_range(start_date.normalize(), end_date.normalize())
-            else:
-                unique_dates = pd.date_range(service_df["date"].min(), service_df["date"].max())
-
-        for current_date in unique_dates:
-            day_users = daily_users.get(current_date, set())
-            day_events = int(daily_events.get(current_date, 0))
-
-            wau_users = set()
-            for date in pd.date_range(current_date - pd.Timedelta(days=6), current_date):
-                wau_users.update(daily_users.get(date, set()))
-
-            mau_users = set()
-            for date in pd.date_range(current_date - pd.Timedelta(days=29), current_date):
-                mau_users.update(daily_users.get(date, set()))
-
-            dau = len(day_users)
-            frequency = day_events / dau if dau else 0
-
-            rows.append(
-                {
-                    "date": current_date,
-                    "service": service,
-                    "dau": dau,
-                    "wau": len(wau_users),
-                    "mau": len(mau_users),
-                    "events": day_events,
-                    "frequency": frequency,
-                }
-            )
-
-    return pd.DataFrame(rows)
-
 def prepare_unified_entity_usage_table(departmental_df: pd.DataFrame) -> pd.DataFrame:
     """Prépare une table commune d'usage par entité/campus pour tous les services."""
 
@@ -271,6 +187,7 @@ def classify_interaction_type(
 
 
 from adoption_analytics.metrics.interactions import compute_top_interactions
+from adoption_analytics.metrics.trends import build_unified_adoption_trend
 
 def prepare_unified_top_interactions_table(
     usage_df: pd.DataFrame,
@@ -280,7 +197,7 @@ def prepare_unified_top_interactions_table(
     measure: str = "Utilisateurs distincts",
 ) -> pd.DataFrame:
     """Prépare une table commune des interactions les plus fréquentes via le helper partagé."""
-    
+
     display_columns = [
         "Service",
         "Type d’interaction",
@@ -290,27 +207,27 @@ def prepare_unified_top_interactions_table(
         "Part des événements (%)",
         "Statut données",
     ]
-    
+
     if service == "Tous les services":
         return pd.DataFrame(columns=display_columns)
 
     df, reach_type, limitations = compute_top_interactions(
-        usage_df, 
-        web_logs_df, 
-        service=service, 
-        measure=measure, 
+        usage_df,
+        web_logs_df,
+        service=service,
+        measure=measure,
         limit=top_n
     )
-    
+
     if df.empty:
         return pd.DataFrame(columns=display_columns)
-        
+
     rows = []
     for _, row in df.iterrows():
         interaction = str(row["interaction"])
         # On délègue la classification avec action=None (la route/page suffit généralement)
         interaction_type = classify_interaction_type(service, interaction, action=None)
-        
+
         rows.append({
             "Service": service,
             "Type d’interaction": interaction_type,
@@ -320,7 +237,7 @@ def prepare_unified_top_interactions_table(
             "Part des événements (%)": row["events_share_pct"],
             "Statut données": "Interaction non renseignée" if interaction == "Non renseigné" else "Disponible"
         })
-        
+
     return pd.DataFrame(rows, columns=display_columns)
 def prepare_unified_data_quality_table(
     usage_df: pd.DataFrame,
@@ -1685,7 +1602,7 @@ if selected_tab == "Vue d'ensemble":
     # ── Filtres Globaux ────────────────────────────────────────────────────────────
     with st.container(border=True):
         control_service, control_period = st.columns([1, 1])
-    
+
         with control_service:
             selected_service = st.selectbox(
                 "Service",
@@ -1769,12 +1686,12 @@ if selected_tab == "Vue d'ensemble":
             period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
         else:
             period_info = f"{current_window.start_date.strftime('%d/%m/%Y')} — {current_window.end_date.strftime('%d/%m/%Y')}"
-        
+
         st.caption(f"**Période utilisée :** {period_info}")
-    
+
         st.subheader("Ce qui mérite votre attention")
         signals = []
-    
+
         if filtered_usage.empty:
             signals.append({
                 "type": "error",
@@ -1791,7 +1708,7 @@ if selected_tab == "Vue d'ensemble":
                         _, srv_end = get_available_date_bounds(srv_usage)
                         if srv_end:
                             latest_dates[srv] = srv_end.strftime('%d/%m/%Y')
-            
+
                 if len(set(latest_dates.values())) > 1:
                     details = "<br>".join([f"<strong>{s}</strong> : {d}" for s, d in latest_dates.items()])
                     signals.append({
@@ -1842,7 +1759,7 @@ if selected_tab == "Vue d'ensemble":
                     "message": "Population éligible manquante.",
                     "action": "Action : compléter le référentiel des utilisateurs éligibles."
                 })
-        
+
             dept_df = departmental_breakdown(filtered_usage)
             if not dept_df.empty and "department" in dept_df.columns:
                 total_events = dept_df["events"].sum()
@@ -1899,7 +1816,7 @@ if selected_tab == "Vue d'ensemble":
         )
 
     dashboard_adoption_vm = dashboard_service.get_adoption_view(
-        filtered_usage, 
+        filtered_usage,
         reference_date=kpi_reference_date,
         kpi_usage=kpi_usage
     )
@@ -1924,12 +1841,12 @@ if selected_tab == "Vue d'ensemble":
 
     if selected_service == "Tous les services":
         overview = dashboard_service.get_global_overview(
-            filtered_usage, 
-            available_services, 
+            filtered_usage,
+            available_services,
             reference_date=kpi_reference_date,
             kpi_usage=kpi_usage
         )
-        
+
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         with kpi1:
             render_kpi_card("Services suivis", str(overview["services_suivis"]), "Total configuré")
@@ -1939,7 +1856,7 @@ if selected_tab == "Vue d'ensemble":
             render_kpi_card("Volume observé", f"{overview['volume_observe']:,}".replace(",", " "), "Événements totaux")
         with kpi4:
             render_kpi_card("Fraîcheur", overview["fraicheur"], "Dernière donnée")
-            
+
         st.markdown(
             "<p style='font-size: 0.9em; color: gray; font-style: italic; margin-top: 12px;'>"
             "Les utilisateurs ne sont pas agrégés entre services car les "
@@ -1948,23 +1865,23 @@ if selected_tab == "Vue d'ensemble":
             "</p>",
             unsafe_allow_html=True
         )
-        
+
         if overview["table_data"]:
             st.dataframe(pd.DataFrame(overview["table_data"]), hide_index=True)
-            
+
     else:
 
         metrics = dashboard_adoption_vm.metrics
         has_data = not filtered_usage.empty
-        
+
         is_booking = (selected_service.lower() == "booking")
 
         freq_val = "Non disponible"
         freq_subtitle = "Fréquence comparable non disponible"
-        
+
         if has_data and is_booking:
             extended = dashboard_service.get_service_extended_analytics(
-                selected_service, 
+                selected_service,
                 reference_date=kpi_reference_date
             )
             if extended and extended.status != "not_available" and extended.usage:
@@ -1990,7 +1907,7 @@ if selected_tab == "Vue d'ensemble":
             mau_val = "Non disponible"
 
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        
+
         with kpi1:
             render_kpi_card("DAU", dau_val, "Actifs du jour")
         with kpi2:
@@ -2063,7 +1980,7 @@ if selected_tab == "Vue d'ensemble":
             with advanced_insight_col:
                 with st.popover("💡 Interprétation IA"):
                     render_interpretation_popover(advanced_kpi_insight)
-        
+
             with st.container(horizontal=True):
                 st.metric(
                     "Stickiness DAU/MAU",
@@ -2097,9 +2014,9 @@ if selected_tab == "Vue d'ensemble":
                     service_bounds[srv] = (srv_min, srv_max)
 
     unified_trend = build_unified_adoption_trend(
-        filtered_usage, 
-        start_date=trend_start, 
-        end_date=trend_end, 
+        filtered_usage,
+        start_date=trend_start,
+        end_date=trend_end,
         service_bounds=service_bounds
     )
 
@@ -2153,7 +2070,7 @@ if selected_tab == "Vue d'ensemble":
                     selected_service=selected_service,
                 ),
             )
-            
+
             with st.popover("💡 Interprétation IA"):
                 render_interpretation_popover(evolution_interpretation)
 
@@ -2192,7 +2109,7 @@ if selected_tab == "Vue d'ensemble":
                             "Ecommerce Demo": "#2ca02c"
                         }
                     )
-                    
+
                     fig.update_layout(
                         height=360,
                         margin=dict(l=0, r=0, t=20, b=0),
@@ -2205,7 +2122,7 @@ if selected_tab == "Vue d'ensemble":
                             title=""
                         )
                     )
-                    
+
                     st.plotly_chart(fig, use_container_width=True)
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
@@ -2245,7 +2162,7 @@ if selected_tab == "Vue d'ensemble":
             meaningful_rows = unified_entity_usage[
                 unified_entity_usage["Entité / campus"] != "Non renseigné"
             ]
-            
+
             if meaningful_rows.empty:
                 st.info("Mapping organisationnel non disponible pour cette sélection.")
             elif len(meaningful_rows) < len(unified_entity_usage):
@@ -2275,12 +2192,12 @@ if selected_tab == "Vue d'ensemble":
             )
 
     # ── Adoption par campus (Service spécifique) ──────────────────────────────
-    
+
     if True:
         with st.container(border=True):
             st.subheader("Adoption par campus")
             st.caption("Comparer l'activité observée à la population éligible.")
-            
+
             if selected_service == "Tous les services":
                 st.info("Non disponible")
                 st.caption("Sélectionnez un service pour analyser l'adoption par campus.")
@@ -2291,35 +2208,35 @@ if selected_tab == "Vue d'ensemble":
                 else:
                     reference_date = None
                     window_days = 30
-                    
+
                 extended = dashboard_service.get_service_extended_analytics(
                     selected_service,
                     reference_date=reference_date,
                     window_days=window_days
                 )
-                
+
                 if extended is None or extended.status == "not_available" or not extended.adoption_by_module:
                     st.info("Non disponible")
                     st.caption("Les données nécessaires à l'adoption par campus ne sont pas disponibles pour ce service.")
                 else:
                     modules = [m["module"] for m in extended.adoption_by_module if "module" in m]
-                    
+
                     if not modules:
                         st.info("Non disponible")
                         st.caption("Les données nécessaires à l'adoption par campus ne sont pas disponibles pour ce service.")
                     else:
                         default_idx = modules.index("HOUSING") if "HOUSING" in modules else 0
-                        
+
                         selected_module = st.selectbox(
                             "Module",
                             options=modules,
                             index=default_idx,
                             key="adoption_campus_module_filter"
                         )
-                        
+
                         if extended.adoption_by_campus:
                             campus_data = [row for row in extended.adoption_by_campus if row.get("module") == selected_module]
-                            
+
                             if not campus_data:
                                 st.info("Adoption par campus non disponible")
                                 st.caption("Population éligible non fournie pour ce module.")
@@ -2331,7 +2248,7 @@ if selected_tab == "Vue d'ensemble":
                                     eligible = row.get("eligible_users", 0)
                                     rate = row.get("observed_adoption_rate")
                                     status = row.get("status")
-                                    
+
                                     if status == "available" and rate is not None:
                                         if rate == 0:
                                             adoption_text = "0 %"
@@ -2343,10 +2260,10 @@ if selected_tab == "Vue d'ensemble":
                                         adoption_text = "Non disponible - population éligible absente"
                                     else:
                                         adoption_text = "Non disponible"
-                                    
+
                                     active_str = f"{int(active)} actif{'s' if active > 1 else ''}"
                                     eligible_str = f"{int(eligible)} éligible{'s' if eligible > 1 else ''}"
-                                    
+
                                     display_rows.append({
                                         "Campus": campus,
                                         "Utilisateurs actifs": active_str,
@@ -2354,11 +2271,11 @@ if selected_tab == "Vue d'ensemble":
                                         "Adoption observée": adoption_text,
                                         "_sort_val": rate if rate is not None else -1
                                     })
-                                
+
                                 if display_rows:
                                     df_display = pd.DataFrame(display_rows)
                                     df_display = df_display.sort_values(by="_sort_val", ascending=False).drop(columns=["_sort_val"])
-                                    
+
                                     st.dataframe(
                                         df_display,
                                         hide_index=True,
@@ -2401,7 +2318,7 @@ if selected_tab == "Vue d'ensemble":
                 measure_options = ["Utilisateurs distincts", "Événements observés"]
                 if selected_service == "Learning Center":
                     measure_options = ["Adresses IP distinctes", "Événements observés"]
-                
+
                 selected_measure = st.selectbox(
                     "Mesure",
                     options=measure_options,
@@ -2430,7 +2347,7 @@ if selected_tab == "Vue d'ensemble":
                 "Vue détaillée des pages, routes, API ou actions métier les plus fréquentes."
                 + (" Le volume événementiel Booking peut inclure des signatures répétées ; il mesure l'activité observée, pas l'adoption." if selected_service == "Booking" and selected_measure == "Événements observés" else "")
             )
-            
+
             if selected_service == "Learning Center":
                 st.caption(
                     "Les adresses IP sources représentent une portée réseau observée. "
@@ -2467,7 +2384,7 @@ if selected_tab == "Vue d'ensemble":
 
     with st.container(border=True):
         st.subheader("Qualité des données")
-        
+
         if selected_service == "Tous les services":
             st.info("Qualité à analyser par service")
             st.caption("Sélectionnez un service pour consulter ses contrôles de qualité et ses limites spécifiques.")
@@ -2475,9 +2392,9 @@ if selected_tab == "Vue d'ensemble":
             extended_dq = dashboard_service.get_service_extended_analytics(selected_service)
             if selected_service == "Booking" and extended_dq.status != "not_available" and extended_dq.data_quality:
                 dq = extended_dq.data_quality
-                
+
                 st.caption("Fiabilité et limites de l'extraction actuellement chargée.")
-                
+
                 event_cov = dq.get("event_user_mapping_coverage", 0)
                 session_cov = dq.get("session_user_mapping_coverage", 0)
                 if event_cov == 100 and session_cov == 100:
@@ -2486,7 +2403,7 @@ if selected_tab == "Vue d'ensemble":
                 else:
                     mapping_val = f"{min(event_cov, session_cov)} %"
                     mapping_sub = "Couverture partielle au référentiel"
-                    
+
                 parse_failures = dq.get("event_timestamp_parse_failures", 0) + dq.get("session_created_at_parse_failures", 0)
                 if parse_failures == 0:
                     ts_val = "100 %"
@@ -2494,7 +2411,7 @@ if selected_tab == "Vue d'ensemble":
                 else:
                     ts_val = "Partiel"
                     ts_sub = f"{parse_failures} échecs de parsing"
-                    
+
                 missing_active = dq.get("missing_entity_active_users", 0)
                 total_active = dq.get("unique_event_users", 1)
                 if total_active > 0:
@@ -2503,12 +2420,12 @@ if selected_tab == "Vue d'ensemble":
                 else:
                     ent_val = "Non disponible"
                 ent_sub = "Utilisateurs actifs avec entité"
-                
+
                 rep_share = dq.get("possible_repeated_event_share", 0)
                 rep_val = f"{rep_share:.2f} %".replace(".", ",")
                 rep_sub = "Signatures événementielles répétées"
                 rep_count = dq.get("possible_repeated_event_rows", 0)
-                
+
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     render_kpi_card("Mapping utilisateurs", mapping_val, mapping_sub)
@@ -2518,7 +2435,7 @@ if selected_tab == "Vue d'ensemble":
                     render_kpi_card("Entités renseignées", ent_val, ent_sub)
                 with col4:
                     render_kpi_card("Répétitions possibles", rep_val, rep_sub)
-                    
+
                 st.markdown(
                     f"<p style='font-size: 0.85em; color: gray; margin-top: 10px;'>"
                     f"{rep_count} lignes présentent des signatures événementielles répétées selon la règle "
@@ -2551,7 +2468,7 @@ if selected_tab == "Learning Center":
         lc_display_kpis["wau"] = int(latest_trend["wau"])
         lc_display_kpis["mau"] = int(latest_trend["mau"])
     st.subheader("Learning Center website")
-    
+
 
     with st.container(horizontal=True):
         st.metric("DAU", f"{lc_display_kpis['dau']:,}", border=True)
@@ -2559,7 +2476,7 @@ if selected_tab == "Learning Center":
         st.metric("MAU", f"{lc_display_kpis['mau']:,}", border=True)
         st.metric("Taux d'erreur", f"{lc_display_kpis['error_rate']:.2%}", border=True)
 
-        
+
     if not lc_vm.daily_kpis.empty:
         with st.container(border=True):
             st.subheader("Tendance d'adoption")
@@ -2568,7 +2485,7 @@ if selected_tab == "Learning Center":
                 x="date",
                 y=["dau", "wau", "mau"],
             )
-        
+
         request_cols = [
             "date",
             "total_requests",
@@ -2597,7 +2514,7 @@ if selected_tab == "Learning Center":
                 x="date",
                 y=list(traffic_labels.values()),
             )
-            
+
     else:
         st.info("Aucun `daily-kpis.csv` Learning Center n'a été trouvé.")
 
@@ -2665,7 +2582,7 @@ if selected_tab == "Adoption détaillée":
                 )
             else:
                 st.info("Aucune donnée d’usage par entité ou campus disponible.")
-    
+
 
     #with st.container(border=True):
      #   st.subheader("Utilisateurs inactifs")
@@ -2825,7 +2742,7 @@ if selected_tab == "Booking":
 if selected_tab == "Assistant IA":
     st.subheader("Assistant IA d’adoption")
     assistant = get_assistant()
-    
+
 
     if "assistant_chat_history" not in st.session_state:
         st.session_state.assistant_chat_history = [

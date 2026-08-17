@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 import pandas as pd
 from adoption_analytics.metrics.interactions import compute_top_interactions
+from adoption_analytics.metrics.trends import build_unified_adoption_trend
+from adoption_analytics.metrics.adoption import departmental_breakdown
 
 from adoption_analytics.services.dashboard_service import DashboardService
 from adoption_analytics.services.adoption_metrics_service import AdoptionMetricsService
@@ -35,7 +37,7 @@ class ToolRegistry:
     def __init__(self, dashboard_service: DashboardService):
         self.dashboard_service = dashboard_service
         self._tools: Dict[str, Tool] = {}
-        
+
         # Enregistrer les outils
         self.register(Tool(
             name="get_usage_kpis",
@@ -120,6 +122,38 @@ class ToolRegistry:
             callable=self.get_data_quality
         ))
 
+        self.register(Tool(
+            name="get_usage_evolution",
+            description="Récupère la série temporelle de l'évolution de l'usage (utilisateurs actifs ou volume d'événements) pour un service.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "service": {"type": "string", "description": "Nom du service à analyser (ex: 'Booking', 'Learning Center')"},
+                    "metric": {"type": "string", "description": "Métrique à analyser: 'active_users' (défaut) ou 'events'"},
+                    "reference_date": {"type": ["string", "null"], "description": "Date de fin optionnelle au format YYYY-MM-DD"},
+                    "window_days": {"type": "integer", "description": "Fenêtre de jours (défaut 30)"}
+                },
+                "required": ["service"]
+            },
+            callable=self.get_usage_evolution
+        ))
+
+        self.register(Tool(
+            name="get_organization_usage",
+            description="Récupère l'usage observé réparti par organisation (Entité/Campus/Département).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "service": {"type": "string", "description": "Nom du service à analyser (ex: 'Booking')"},
+                    "reference_date": {"type": ["string", "null"], "description": "Date de fin optionnelle au format YYYY-MM-DD"},
+                    "window_days": {"type": "integer", "description": "Fenêtre de jours (défaut 30)"}
+                },
+                "required": ["service"]
+            },
+            callable=self.get_organization_usage
+        ))
+
+
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -160,7 +194,7 @@ class ToolRegistry:
 
     def get_usage_kpis(self, service: str, reference_date: Optional[str] = None) -> ToolResult:
         tool_name = "get_usage_kpis"
-        
+
         if not service:
             return ToolResult(
                 status="invalid_request",
@@ -169,9 +203,9 @@ class ToolRegistry:
                 data={},
                 message="Le paramètre 'service' est requis."
             )
-            
+
         service_lower = service.lower().strip()
-        
+
         if service_lower in ["tous les services", "all", "*"]:
             return ToolResult(
                 status="invalid_request",
@@ -190,7 +224,7 @@ class ToolRegistry:
                 unique_services = usage_df["service"].dropna().unique().tolist()
                 for srv in unique_services:
                     available_services_map[str(srv).lower().strip()] = str(srv)
-        
+
         # Hardcode fallback for known services if data not loaded or empty
         if not available_services_map:
             available_services_map = {
@@ -200,7 +234,7 @@ class ToolRegistry:
             }
 
         resolved_service = available_services_map.get(service_lower)
-        
+
         if not resolved_service:
             available = ", ".join(available_services_map.values())
             return ToolResult(
@@ -225,17 +259,17 @@ class ToolRegistry:
                 )
 
         limitations = []
-        
+
         if resolved_service == "Booking":
             extended = self.dashboard_service.get_service_extended_analytics(resolved_service, reference_date=ref_timestamp)
             usage = extended.usage if extended and extended.usage else {}
-            
+
             dau = usage.get("dau", 0)
             wau = usage.get("wau", 0)
             mau = usage.get("mau", 0)
-            
+
             avg_days = usage.get("avg_active_days_per_active_user_30d")
-            
+
             if avg_days is not None:
                 frequency = {
                     "value": float(avg_days),
@@ -244,7 +278,7 @@ class ToolRegistry:
                 }
             else:
                 frequency = None
-                
+
             return ToolResult(
                 status="success",
                 tool=tool_name,
@@ -265,15 +299,15 @@ class ToolRegistry:
                 service_usage = usage_df[usage_df["service"].astype(str) == resolved_service].copy()
             else:
                 service_usage = pd.DataFrame()
-                
+
             metrics = AdoptionMetricsService.compute(service_usage, reference_date=ref_timestamp)
-            
+
             dau = metrics.get("dau", 0)
             wau = metrics.get("wau", 0)
             mau = metrics.get("mau", 0)
-            
+
             limitations.append("Comparable usage frequency is not available for this service.")
-            
+
             return ToolResult(
                 status="success",
                 tool=tool_name,
@@ -300,14 +334,14 @@ class ToolRegistry:
                 unique_services = usage_df["service"].dropna().unique().tolist()
                 for srv in unique_services:
                     available_services_map[str(srv).lower().strip()] = str(srv)
-        
+
         if not available_services_map:
             available_services_map = {
                 "booking": "Booking",
                 "learning center": "Learning Center",
                 "ecommerce demo": "Ecommerce Demo"
             }
-            
+
         return available_services_map.get(service_lower)
 
     def _parse_date(self, date_str: str | None) -> pd.Timestamp | None:
@@ -325,7 +359,7 @@ class ToolRegistry:
                 data={},
                 message="Sélectionnez un service spécifique." if tool_name == "get_top_interactions" else "Opération non applicable globalement."
             )
-            
+
         return ToolResult(
             status="invalid_request",
             tool=tool_name,
@@ -337,14 +371,14 @@ class ToolRegistry:
 
     def get_adoption_by_module(self, service: str, module: str | None = None, reference_date: str | None = None, window_days: int = 30) -> ToolResult:
         tool_name = "get_adoption_by_module"
-        
+
         if not service:
             return ToolResult(status="invalid_request", tool=tool_name, service=service, data={}, message="Le paramètre 'service' est requis.")
-            
+
         resolved_service = self._resolve_service(service)
         if not resolved_service:
             return self._handle_invalid_service(tool_name, service)
-            
+
         if resolved_service != "Booking":
             return ToolResult(
                 status="not_available",
@@ -353,7 +387,7 @@ class ToolRegistry:
                 data={},
                 message="L'adoption par module n'est pas disponible pour ce service."
             )
-            
+
         try:
             ref_ts = self._parse_date(reference_date)
         except ValueError:
@@ -361,7 +395,7 @@ class ToolRegistry:
 
         extended = self.dashboard_service.get_service_extended_analytics(resolved_service, reference_date=ref_ts, window_days=window_days)
         modules_data = extended.adoption_by_module or []
-        
+
         if module:
             target = module.lower().strip()
             filtered = []
@@ -371,7 +405,7 @@ class ToolRegistry:
                 available_modules.append(m_name)
                 if m_name.lower().strip() == target:
                     filtered.append(m)
-            
+
             if not filtered:
                 return ToolResult(
                     status="invalid_request",
@@ -397,9 +431,9 @@ class ToolRegistry:
                 item["observed_adoption_rate"] = None
             elif item["status"] == "eligible_population_unavailable":
                 item["observed_adoption_rate"] = None
-                
+
             result_data.append(item)
-            
+
         return ToolResult(
             status="success",
             tool=tool_name,
@@ -410,14 +444,14 @@ class ToolRegistry:
 
     def get_adoption_by_campus(self, service: str, module: str, campus: str | None = None, reference_date: str | None = None, window_days: int = 30) -> ToolResult:
         tool_name = "get_adoption_by_campus"
-        
+
         if not service or not module:
             return ToolResult(status="invalid_request", tool=tool_name, service=service, data={}, message="Paramètres 'service' et 'module' requis.")
-            
+
         resolved_service = self._resolve_service(service)
         if not resolved_service:
             return self._handle_invalid_service(tool_name, service)
-            
+
         if resolved_service != "Booking":
             return ToolResult(
                 status="not_available",
@@ -426,7 +460,7 @@ class ToolRegistry:
                 data={},
                 message="L'adoption par campus n'est pas disponible pour ce service."
             )
-            
+
         try:
             ref_ts = self._parse_date(reference_date)
         except ValueError:
@@ -434,11 +468,11 @@ class ToolRegistry:
 
         extended = self.dashboard_service.get_service_extended_analytics(resolved_service, reference_date=ref_ts, window_days=window_days)
         campus_data = extended.adoption_by_campus or []
-        
+
         # Filtre sur le module
         target_mod = module.lower().strip()
         mod_campus = [c for c in campus_data if str(c.get("module", "")).lower().strip() == target_mod]
-        
+
         if not mod_campus:
             return ToolResult(
                 status="not_available",
@@ -447,7 +481,7 @@ class ToolRegistry:
                 data={},
                 message="Population éligible par campus non disponible pour ce module."
             )
-            
+
         if campus:
             target_camp = campus.lower().strip()
             filtered = []
@@ -457,7 +491,7 @@ class ToolRegistry:
                 available_campus.append(c_name)
                 if c_name.lower().strip() == target_camp:
                     filtered.append(c)
-            
+
             if not filtered:
                 return ToolResult(
                     status="invalid_request",
@@ -467,7 +501,7 @@ class ToolRegistry:
                     message=f"Campus inconnu: '{campus}'. Campus disponibles: {', '.join(available_campus)}"
                 )
             mod_campus = filtered
-            
+
         # Tri par observed_adoption_rate décroissant si status == available
         def sort_key(c):
             if c.get("status") == "available" and pd.notna(c.get("observed_adoption_rate")):
@@ -475,7 +509,7 @@ class ToolRegistry:
             return -1.0
 
         mod_campus.sort(key=sort_key, reverse=True)
-        
+
         result_data = []
         for c in mod_campus:
             item = {
@@ -490,9 +524,9 @@ class ToolRegistry:
                 item["observed_adoption_rate"] = None
             elif item["status"] == "eligible_population_unavailable":
                 item["observed_adoption_rate"] = None
-                
+
             result_data.append(item)
-            
+
         return ToolResult(
             status="success",
             tool=tool_name,
@@ -502,26 +536,26 @@ class ToolRegistry:
 
     def get_top_interactions(self, service: str, measure: str = "reach", limit: int = 10, start_date: str | None = None, end_date: str | None = None) -> ToolResult:
         tool_name = "get_top_interactions"
-        
+
         if not service: return ToolResult(status="invalid_request", tool=tool_name, service=service, data={}, message="Le paramètre 'service' est requis.")
-            
+
         service_lower = service.lower().strip()
         if service_lower in ["tous les services", "all", "*"]:
             return ToolResult(
-                status="invalid_request", tool=tool_name, service=service, data={}, 
+                status="invalid_request", tool=tool_name, service=service, data={},
                 message="Les interactions ont des sémantiques différentes selon les services. Sélectionnez un service."
             )
-            
+
         resolved_service = self._resolve_service(service)
         if not resolved_service:
             return self._handle_invalid_service(tool_name, service)
-            
+
         try:
             limit = int(limit)
             if limit < 1 or limit > 50: raise ValueError()
         except ValueError:
             return ToolResult(status="invalid_request", tool=tool_name, service=resolved_service, data={}, message="Limit doit être entre 1 et 50.")
-            
+
         try:
             start_ts = self._parse_date(start_date)
             end_ts = self._parse_date(end_date)
@@ -539,17 +573,17 @@ class ToolRegistry:
         # Filtrage temporel existant du registre
         usage_df = self.dashboard_service.data.usage_events if hasattr(self.dashboard_service, "_data") and self.dashboard_service._data else pd.DataFrame()
         web_logs_df = self.dashboard_service.data.web_logs if hasattr(self.dashboard_service, "_data") and self.dashboard_service._data else pd.DataFrame()
-        
+
         def filter_dates(df, ts_col):
             if df is None or df.empty or ts_col not in df.columns: return df
             if start_ts: df = df[df[ts_col] >= start_ts]
             if end_ts: df = df[df[ts_col] <= end_ts]
             return df
-            
+
         usage_df = filter_dates(usage_df, "event_timestamp")
         web_logs_ts_col = "timestamp" if web_logs_df is not None and not web_logs_df.empty and "timestamp" in web_logs_df.columns else "event_timestamp"
         web_logs_df = filter_dates(web_logs_df, web_logs_ts_col)
-        
+
         # Appel du helper PURE partagé
         grouped, reach_type, limitations = compute_top_interactions(
             usage_events_df=usage_df,
@@ -558,10 +592,10 @@ class ToolRegistry:
             measure=measure_lower,
             limit=limit
         )
-        
+
         if grouped.empty:
             return ToolResult(status="success", tool=tool_name, service=resolved_service, data={"interactions": []})
-            
+
         results = []
         for _, row in grouped.iterrows():
             results.append({
@@ -570,7 +604,7 @@ class ToolRegistry:
                 "reach_type": reach_type,
                 "event_count": int(row["events"])
             })
-            
+
         return ToolResult(
             status="success",
             tool=tool_name,
@@ -582,42 +616,42 @@ class ToolRegistry:
 
     def get_data_quality(self, service: str) -> ToolResult:
         tool_name = "get_data_quality"
-        
+
         if not service: return ToolResult(status="invalid_request", tool=tool_name, service=service, data={}, message="Le paramètre 'service' est requis.")
-            
+
         resolved_service = self._resolve_service(service)
         if not resolved_service:
             return self._handle_invalid_service(tool_name, service)
-            
+
         if resolved_service != "Booking":
             return ToolResult(
-                status="not_available", tool=tool_name, service=resolved_service, data={}, 
+                status="not_available", tool=tool_name, service=resolved_service, data={},
                 message="Les contrôles de qualité structurés ne sont pas encore disponibles pour ce service."
             )
-            
+
         extended = self.dashboard_service.get_service_extended_analytics(resolved_service)
         dq = extended.data_quality or {}
-        
+
         if not dq:
             return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={}, message="Qualité des données non disponible.")
-            
+
         unique_event_users = int(dq.get("unique_event_users", 0)) if pd.notna(dq.get("unique_event_users")) else 0
         missing_entity_active_users = int(dq.get("missing_entity_active_users", 0)) if pd.notna(dq.get("missing_entity_active_users")) else 0
-        
+
         if unique_event_users > 0:
             entity_coverage_active_users = (unique_event_users - missing_entity_active_users) / unique_event_users * 100.0
         else:
             entity_coverage_active_users = 0.0
-            
+
         repeated_share = float(dq.get("possible_repeated_event_share", 0)) if pd.notna(dq.get("possible_repeated_event_share")) else 0.0
-        
+
         limitations = []
         if entity_coverage_active_users < 100:
             limitations.append("Mapping entité partiel. Certaines actions orphelines limitent l'analyse.")
         if repeated_share > 0:
             limitations.append("Signatures répétées possibles. Aucune déduplication automatique.")
         limitations.append("Absence d'event_id unique empêchant de confirmer des doublons.")
-        
+
         data = {
             "event_rows": int(dq.get("event_rows", 0)) if pd.notna(dq.get("event_rows")) else 0,
             "unique_event_users": unique_event_users,
@@ -634,11 +668,207 @@ class ToolRegistry:
             "possible_repeated_event_rows": int(dq.get("possible_repeated_event_rows", 0)) if pd.notna(dq.get("possible_repeated_event_rows")) else 0,
             "possible_repeated_event_share": repeated_share
         }
-        
+
         return ToolResult(
             status="success",
             tool=tool_name,
             service=resolved_service,
             data=data,
             limitations=limitations
+        )
+
+    def get_usage_evolution(self, service: str, metric: str = "active_users", reference_date: str | None = None, window_days: int = 30) -> ToolResult:
+        tool_name = "get_usage_evolution"
+
+        if not service: return ToolResult(status="invalid_request", tool=tool_name, service=service, data={}, message="Le paramètre 'service' est requis.")
+
+        service_lower = service.lower().strip()
+        if service_lower in ["tous les services", "all", "*"]:
+            return ToolResult(
+                status="invalid_request", tool=tool_name, service=service, data={},
+                message="L'évolution des utilisateurs doit être analysée service par service car les identités ne sont pas réconciliées entre les sources."
+            )
+
+        resolved_service = self._resolve_service(service)
+        if not resolved_service:
+            return self._handle_invalid_service(tool_name, service)
+
+        metric_lower = metric.lower().strip()
+        if metric_lower in ["active_users", "users", "dau"]:
+            target_metric = "dau"
+        elif metric_lower in ["events", "volume"]:
+            target_metric = "events"
+        else:
+            return ToolResult(status="invalid_request", tool=tool_name, service=resolved_service, data={}, message="metric invalide. Utilisez 'active_users' ou 'events'.")
+
+        try:
+            window_days = int(window_days)
+            if window_days < 1 or window_days > 365: raise ValueError()
+        except ValueError:
+            return ToolResult(status="invalid_request", tool=tool_name, service=resolved_service, data={}, message="window_days doit être entre 1 et 365.")
+
+        try:
+            ref_ts = self._parse_date(reference_date)
+        except ValueError:
+            return ToolResult(status="invalid_request", tool=tool_name, service=resolved_service, data={}, message="Format de date invalide.")
+
+        if not hasattr(self.dashboard_service, "_data") or not self.dashboard_service._data:
+            return ToolResult(status="success", tool=tool_name, service=resolved_service, data={"series": []})
+
+        usage_df = self.dashboard_service.data.usage_events
+        if usage_df.empty or "service" not in usage_df.columns:
+            return ToolResult(status="success", tool=tool_name, service=resolved_service, data={"series": []})
+
+        service_usage = usage_df[usage_df["service"].astype(str).str.lower() == resolved_service.lower()].copy()
+        if service_usage.empty:
+            return ToolResult(status="success", tool=tool_name, service=resolved_service, data={"series": []})
+
+        actual_min = service_usage["event_timestamp"].min()
+        actual_max = service_usage["event_timestamp"].max()
+        service_bounds = {}
+        if pd.notna(actual_min) and pd.notna(actual_max):
+            service_bounds[resolved_service] = (actual_min.normalize(), actual_max.normalize())
+
+        # Déterminer la période
+        service_usage["event_timestamp"] = pd.to_datetime(service_usage["event_timestamp"], errors="coerce")
+        actual_max = service_usage["event_timestamp"].max()
+        if pd.isna(actual_max):
+            return ToolResult(status="success", tool=tool_name, service=resolved_service, data={"series": []})
+
+        actual_max = actual_max.normalize()
+        end_ts = ref_ts.normalize() if ref_ts else actual_max
+        start_ts = end_ts - pd.Timedelta(days=window_days - 1)
+
+        # Le filtrage global des events est géré par la fonction elle-même (via service_bounds et start_date/end_date).
+        # Mais pour get_trend_warning_message, il lui faut le DataFrame filtré globalement sur la fenêtre.
+        mask = (service_usage["event_timestamp"] >= start_ts) & (service_usage["event_timestamp"] <= end_ts + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
+        filtered_usage = service_usage[mask].copy()
+
+        trend_df = build_unified_adoption_trend(filtered_usage, start_date=start_ts, end_date=end_ts, service_bounds=service_bounds)
+
+        if trend_df.empty:
+            return ToolResult(status="success", tool=tool_name, service=resolved_service, data={"series": []})
+
+        warning = self.dashboard_service.get_trend_warning_message(filtered_usage, resolved_service)
+        limitations = []
+        if warning: limitations.append(warning)
+        if target_metric == "events" and resolved_service == "Booking":
+            limitations.append("Le volume événementiel de Booking peut inclure des signatures répétées.")
+
+        series_data = []
+        for _, row in trend_df.iterrows():
+            series_data.append({
+                "date": row["date"].strftime("%Y-%m-%d"),
+                "value": int(row[target_metric]) if pd.notna(row[target_metric]) else 0
+            })
+
+        coverage_start = trend_df["date"].min().strftime("%Y-%m-%d")
+        coverage_end = trend_df["date"].max().strftime("%Y-%m-%d")
+
+        return ToolResult(
+            status="success",
+            tool=tool_name,
+            service=resolved_service,
+            data={
+                "metric": target_metric,
+                "period_start": start_ts.strftime("%Y-%m-%d"),
+                "period_end": end_ts.strftime("%Y-%m-%d"),
+                "coverage_start": coverage_start,
+                "coverage_end": coverage_end,
+                "observed_days": len(trend_df),
+                "latest_value": series_data[-1]["value"] if series_data else 0,
+                "series": series_data
+            },
+            limitations=limitations
+        )
+
+    def get_organization_usage(self, service: str, reference_date: str | None = None, window_days: int = 30) -> ToolResult:
+        tool_name = "get_organization_usage"
+
+        if not service: return ToolResult(status="invalid_request", tool=tool_name, service=service, data={}, message="Le paramètre 'service' est requis.")
+
+        service_lower = service.lower().strip()
+        if service_lower in ["tous les services", "all", "*"]:
+            return ToolResult(
+                status="invalid_request", tool=tool_name, service=service, data={},
+                message="Les dimensions organisationnelles ne sont pas homogènes entre les services."
+            )
+
+        resolved_service = self._resolve_service(service)
+        if not resolved_service:
+            return self._handle_invalid_service(tool_name, service)
+
+        if resolved_service in ["Learning Center", "Ecommerce Demo"]:
+            return ToolResult(
+                status="not_available", tool=tool_name, service=resolved_service, data={},
+                message="Les données organisationnelles fiables ne sont pas disponibles pour ce service."
+            )
+
+        try:
+            window_days = int(window_days)
+        except ValueError:
+            return ToolResult(status="invalid_request", tool=tool_name, service=resolved_service, data={}, message="window_days doit être un entier.")
+
+        try:
+            ref_ts = self._parse_date(reference_date)
+        except ValueError:
+            return ToolResult(status="invalid_request", tool=tool_name, service=resolved_service, data={}, message="Format de date invalide.")
+
+        if not hasattr(self.dashboard_service, "_data") or not self.dashboard_service._data:
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        usage_df = self.dashboard_service.data.usage_events
+        if usage_df.empty or "service" not in usage_df.columns:
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        service_usage = usage_df[usage_df["service"].astype(str).str.lower() == resolved_service.lower()].copy()
+        if service_usage.empty:
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        service_usage["event_timestamp"] = pd.to_datetime(service_usage["event_timestamp"], errors="coerce")
+        actual_max = service_usage["event_timestamp"].max()
+        if pd.isna(actual_max):
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        actual_max = actual_max.normalize()
+        end_ts = ref_ts.normalize() if ref_ts else actual_max
+        start_ts = end_ts - pd.Timedelta(days=window_days - 1)
+
+        mask = (service_usage["event_timestamp"] >= start_ts) & (service_usage["event_timestamp"] <= end_ts + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
+        filtered_usage = service_usage[mask].copy()
+
+        if filtered_usage.empty:
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        # Fix column if needed for departmental_breakdown
+        # Usage events have 'department' for Booking
+        if "department" not in filtered_usage.columns:
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        # Treat missing entity correctly as "Non renseigné"
+        filtered_usage["department"] = filtered_usage["department"].fillna("Non renseigné").replace({"Unknown": "Non renseigné", "": "Non renseigné"})
+
+        dept_df = departmental_breakdown(filtered_usage)
+
+        if dept_df.empty:
+            return ToolResult(status="not_available", tool=tool_name, service=resolved_service, data={})
+
+        orgs = []
+        for _, row in dept_df.iterrows():
+            orgs.append({
+                "organization": str(row["department"]),
+                "active_users": int(row["active_users"]) if pd.notna(row["active_users"]) else 0,
+                "events": int(row["events"]) if pd.notna(row["events"]) else 0,
+                "share_of_active_users": float(row["share_of_active_users"]) if pd.notna(row["share_of_active_users"]) else 0.0
+            })
+
+        return ToolResult(
+            status="success",
+            tool=tool_name,
+            service=resolved_service,
+            data={
+                "period_start": start_ts.strftime("%Y-%m-%d"),
+                "period_end": end_ts.strftime("%Y-%m-%d"),
+                "organizations": orgs
+            }
         )
