@@ -99,6 +99,19 @@ class Settings(BaseSettings):
         description="Liste de patterns de routes considérées suspectes.",
     )
 
+
+    # ── Moteur Groq ───────────────────────────────────────────────────────────
+
+    groq_api_key: str | None = Field(
+        default=None,
+        description="Clé d'API Groq pour le local tool calling.",
+    )
+
+    groq_model: str = Field(
+        default="qwen/qwen3.6-27b",
+        description="Modèle Groq supportant le tool calling par défaut.",
+    )
+
     # ── Assistant IA ──────────────────────────────────────────────────────────
 
     assistant_engine: str = Field(
