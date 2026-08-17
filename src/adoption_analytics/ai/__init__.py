@@ -21,10 +21,20 @@ def create_assistant_engine(dashboard_service=None):
         try:
             from adoption_analytics.ai.llm_engine import LLMEngine
             from adoption_analytics.ai.tool_registry import ToolRegistry
+            from adoption_analytics.ai.knowledge_retriever import KnowledgeRetriever
 
             # On instancie le registry avec le service fourni par l'app Streamlit
             registry = ToolRegistry(dashboard_service)
-            return LLMEngine(registry=registry)
+
+            # Initialisation du retriever RAG
+            retriever = None
+            try:
+                retriever = KnowledgeRetriever()
+                retriever.build_index()
+            except Exception:
+                pass # Si le RAG échoue, on continue sans
+
+            return LLMEngine(registry=registry, knowledge_retriever=retriever)
         except Exception as e:
             # En cas d'erreur d'import ou de clé, on retourne le fallback silencieusement
             # (ou on pourrait logger l'erreur). L'UI signalera le mode déterministe.
