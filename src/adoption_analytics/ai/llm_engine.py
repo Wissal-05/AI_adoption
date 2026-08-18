@@ -30,6 +30,11 @@ Règles obligatoires :
 7. Ne jamais créer un KPI global multi-service si le tool le refuse.
 8. Répondre en français par défaut, en étant concis et orienté décision.
 9. Les noms Housing, Transport, Catering, Access, Repair, Admin et Other désignent des modules du service Booking. Lorsqu'un utilisateur demande leur adoption sans préciser le service, utiliser Booking comme service.
+10. Une demande portant sur le NOMBRE d'utilisateurs actifs sur 30 jours correspond au MAU et doit utiliser get_usage_kpis. Utiliser get_usage_evolution uniquement si l'utilisateur exprime explicitement une intention temporelle : évolution, tendance, variation, progression, baisse, hausse, courbe, historique.
+11. MAU = fenêtre de 30 jours, pas un mois calendaire. Si on demande "ce mois-ci", réponds "sur les 30 derniers jours disponibles". Ne dis jamais "ce mois-ci = X" s'il s'agit du MAU glissant. Si on demande une période calendaire non gérée, explique la métrique disponible sans inventer.
+12. Ne dis jamais que le DAU correspond à "24 heures". Utilise "utilisateurs actifs sur la journée de référence" ou "utilisateurs actifs quotidiens".
+13. Ne présente aucune cause comme probable (ex: problème de communication, accessibilité, formation) sans donnée pour l'étayer. Si une valeur est faible, dis "ce point mérite une investigation" ou "les causes de cet écart ne peuvent pas être déterminées avec les données disponibles".
+14. Pour la Data Quality, ne dis jamais "doublons". Dis systématiquement "signatures événementielles répétées possibles". Précise que "l'absence d'un event_id unique ne permet pas de confirmer qu'il s'agit de doublons."
 """
 
 
@@ -85,6 +90,7 @@ class LLMEngine:
 
         for _ in range(max_rounds):
             try:
+                print("LLMEngine: initial_llm_call", flush=True)
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -93,13 +99,40 @@ class LLMEngine:
                     temperature=0.1
                 )
             except Exception as e:
-                return AssistantResponse(
-                    answer="Erreur lors de la communication avec l'assistant.",
-                    tool_calls=used_tools,
-                    limitations=all_limitations,
-                    error=str(e),
-                    knowledge_sources=knowledge_sources
-                )
+                print(f"LLMEngine: error {type(e).__name__} during initial_llm_call.", flush=True)
+                status_code = getattr(e, "status_code", None)
+                if status_code is not None:
+                    print(f"LLMEngine: status_code = {status_code}", flush=True)
+
+                if status_code in (400, 422):
+                    print("LLMEngine: Attempting one retry for client/semantic error.", flush=True)
+                    try:
+                        response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=messages,
+                            tools=tools,
+                            tool_choice="auto",
+                            temperature=0.0
+                        )
+                    except Exception as retry_e:
+                        print(f"LLMEngine: error {type(retry_e).__name__} during final_llm_call.", flush=True)
+                        if hasattr(retry_e, "status_code"):
+                            print(f"LLMEngine: status_code = {retry_e.status_code}", flush=True)
+                        return AssistantResponse(
+                            answer="Erreur lors de la communication avec l'assistant.",
+                            tool_calls=used_tools,
+                            limitations=all_limitations,
+                            error=str(retry_e),
+                            knowledge_sources=knowledge_sources
+                        )
+                else:
+                    return AssistantResponse(
+                        answer="Erreur lors de la communication avec l'assistant.",
+                        tool_calls=used_tools,
+                        limitations=all_limitations,
+                        error=str(e),
+                        knowledge_sources=knowledge_sources
+                    )
 
             if not response.choices:
                 return AssistantResponse(
@@ -128,6 +161,7 @@ class LLMEngine:
             for tc in tool_calls:
                 func_name = tc.function.name
                 used_tools.append(func_name)
+                print(f"LLMEngine: tool_execution - {func_name}", flush=True)
                 try:
                     kwargs = json.loads(tc.function.arguments)
                     result = self.registry.execute(func_name, **kwargs)

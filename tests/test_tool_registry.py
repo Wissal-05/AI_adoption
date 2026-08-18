@@ -126,7 +126,7 @@ def test_generic_frequency_is_none_with_limitation(registry, monkeypatch):
 
     result = registry.execute("get_usage_kpis", service="Learning Center")
     assert result.data.get("frequency") is None
-    assert any("Comparable usage frequency is not available" in str(lim) for lim in result.limitations)
+    assert any("La fréquence d'usage comparable n'est pas disponible" in str(lim) for lim in result.limitations)
 
 
 def test_all_services_returns_invalid_request(registry):

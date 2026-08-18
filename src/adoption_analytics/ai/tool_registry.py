@@ -41,7 +41,7 @@ class ToolRegistry:
         # Enregistrer les outils
         self.register(Tool(
             name="get_usage_kpis",
-            description="Récupère les KPIs d'usage globaux (DAU, WAU, MAU) pour un service donné.",
+            description="retourne DAU / WAU / MAU. MAU = utilisateurs actifs sur une fenêtre de 30 jours. Utiliser ce tool lorsqu'on demande combien d'utilisateurs ont été actifs sur 30 jours.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -124,7 +124,7 @@ class ToolRegistry:
 
         self.register(Tool(
             name="get_usage_evolution",
-            description="Récupère la série temporelle de l'évolution de l'usage (utilisateurs actifs ou volume d'événements) pour un service.",
+            description="retourne une SÉRIE temporelle. Utiliser uniquement lorsqu'on demande évolution/tendance/variation dans le temps. Ne pas utiliser simplement parce que la question contient '30 jours'.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -306,7 +306,7 @@ class ToolRegistry:
             wau = metrics.get("wau", 0)
             mau = metrics.get("mau", 0)
 
-            limitations.append("Comparable usage frequency is not available for this service.")
+            limitations.append("La fréquence d'usage comparable n'est pas disponible pour ce service.")
 
             return ToolResult(
                 status="success",
