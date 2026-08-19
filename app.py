@@ -1893,7 +1893,8 @@ if selected_tab == "Vue d'ensemble":
                 })
                 avg_days = extended.usage.get("avg_active_days_per_active_user_30d")
                 if avg_days is not None:
-                    freq_val = f"{avg_days}".replace(".", ",") + " jours"
+                    rounded_avg_days = round(float(avg_days))
+                    freq_val = f"{rounded_avg_days} jours"
                     freq_subtitle = "par utilisateur actif<br>sur les 30 derniers jours"
 
         if has_data:
@@ -1914,7 +1915,51 @@ if selected_tab == "Vue d'ensemble":
         with kpi3:
             render_kpi_card("UTILISATEURS ACTIFS<br>MENSUELS", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>MAU</div>{mau_val}", "Actifs sur les 30 derniers jours")
         with kpi4:
-            render_kpi_card("JOURS ACTIFS MOYENS <span title='Nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.' style='cursor:help;'>ℹ️</span>", freq_val, freq_subtitle)
+            with st.container(border=True):
+                # Ajout de style pour adapter le bouton au design de la carte
+                st.markdown(
+                    """
+                    <style>
+                    /* Suppression du padding par defaut de la colonne pour bien aligner le bouton */
+                    [data-testid="column"]:nth-child(4) [data-testid="stVerticalBlockBorderWrapper"] {
+                        padding: 15px 20px;
+                        border-radius: 12px;
+                    }
+                    /* Style discret du bouton popover */
+                    [data-testid="column"]:nth-child(4) button[kind="secondary"] {
+                        padding: 0;
+                        border: none;
+                        background: transparent;
+                        box-shadow: none;
+                        float: right;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                col_t, col_p = st.columns([5, 1])
+                with col_t:
+                    st.markdown('<div class="kpi-card-title" style="margin-top: 4px;">JOURS ACTIFS MOYENS</div>', unsafe_allow_html=True)
+                with col_p:
+                    with st.popover("ℹ️"):
+                        st.markdown("**Que signifie cet indicateur ?**")
+                        exact_val_str = ""
+                        if freq_val != "Non disponible" and "avg_days" in locals() and avg_days is not None:
+                            exact_val_str = f"Valeur calculée exacte : {str(avg_days).replace('.', ',')} jours.\n\nCela correspond à environ {rounded_avg_days} jours distincts d'activité par utilisateur actif sur les 30 derniers jours.\n\n"
+                        st.markdown(exact_val_str + "Il représente le nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.")
+                        st.markdown("Exemple : si un utilisateur réalise plusieurs actions le même jour, cette journée compte une seule fois.")
+                        st.markdown("Cet indicateur ne représente ni le nombre de connexions, ni le nombre de sessions, ni le nombre d'événements, ni la durée d'utilisation.")
+
+                st.markdown(
+                    f'''
+                    <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
+                        <div class="kpi-card-value">{freq_val}</div>
+                        <div class="kpi-card-subtitle">{freq_subtitle}</div>
+                    </div>
+                    ''',
+                    unsafe_allow_html=True
+                )
 
         if has_data:
             kpi_insight = prepare_kpi_interpretation(
