@@ -408,27 +408,26 @@ def prepare_kpi_interpretation(
         )
 
     if len(services) == 0:
-        service_scope = "aucun service disponible avec les filtres actuels"
+        service_scope = "aucun service"
     elif len(services) == 1:
-        service_scope = f"le service {services[0]}"
+        service_scope = f"{services[0]}"
     else:
-        service_scope = f"{len(services)} services : {', '.join(services)}"
+        service_scope = f"{len(services)} services ({', '.join(services)})"
 
     if is_booking:
         avg_days = metrics.get("avg_active_days_per_active_user_30d")
         if avg_days is not None:
             freq_str = f"{avg_days}".replace(".", ",")
-            observation_freq = f"avec en moyenne {freq_str} jours actifs par utilisateur actif sur les 30 derniers jours."
+            observation_freq = f"Les utilisateurs actifs sur les 30 derniers jours ont été actifs en moyenne pendant {freq_str} jours distincts sur cette période."
         else:
             observation_freq = "La fréquence d'usage comparable n'est pas disponible avec les métriques actuelles."
     else:
         observation_freq = "La fréquence d'usage comparable n'est pas disponible avec les métriques actuelles."
 
     observation = (
-        f"Les KPI affichés couvrent {service_scope}. "
-        f"Ils indiquent {dau:,} utilisateurs actifs quotidiens, "
-        f"{wau:,} utilisateurs actifs hebdomadaires et "
-        f"{mau:,} utilisateurs actifs mensuels. "
+        f"{service_scope.capitalize()} compte {dau:,} utilisateurs actifs sur la journée de référence, "
+        f"{wau:,} utilisateurs actifs sur les 7 derniers jours et "
+        f"{mau:,} utilisateurs actifs sur les 30 derniers jours.\n\n"
         f"{observation_freq}"
     )
 
@@ -652,8 +651,8 @@ def prepare_kpi_recommendations(metrics: dict, is_booking: bool = False) -> list
                 )
             elif frequency_value < 5:
                 recommendations.append(
-                    "Identifier les freins d'usage possibles : faible volume d'interactions, faible visibilité du service, "
-                    "besoin de formation ou parcours utilisateur trop complexe."
+                    "Le faible niveau de récurrence observé mérite une investigation pour déterminer s'il "
+                    "correspond au fonctionnement normal du service ou à un usage occasionnel."
                 )
         except (TypeError, ValueError):
             pass
@@ -1895,7 +1894,7 @@ if selected_tab == "Vue d'ensemble":
                 avg_days = extended.usage.get("avg_active_days_per_active_user_30d")
                 if avg_days is not None:
                     freq_val = f"{avg_days}".replace(".", ",") + " jours"
-                    freq_subtitle = "Jours actifs moyens / utilisateur"
+                    freq_subtitle = "par utilisateur actif<br>sur les 30 derniers jours"
 
         if has_data:
             dau_val = f"{int(metrics.get('dau', 0)):,}".replace(",", " ")
@@ -1909,13 +1908,13 @@ if selected_tab == "Vue d'ensemble":
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
         with kpi1:
-            render_kpi_card("DAU", dau_val, "Actifs du jour")
+            render_kpi_card("UTILISATEURS ACTIFS<br>QUOTIDIENS", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>DAU</div>{dau_val}", "Actifs sur la journée de référence")
         with kpi2:
-            render_kpi_card("WAU", wau_val, "Actifs sur 7 jours")
+            render_kpi_card("UTILISATEURS ACTIFS<br>HEBDOMADAIRES", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>WAU</div>{wau_val}", "Actifs sur les 7 derniers jours")
         with kpi3:
-            render_kpi_card("MAU", mau_val, "Actifs sur 30 jours")
+            render_kpi_card("UTILISATEURS ACTIFS<br>MENSUELS", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>MAU</div>{mau_val}", "Actifs sur les 30 derniers jours")
         with kpi4:
-            render_kpi_card("Fréquence d'usage", freq_val, freq_subtitle)
+            render_kpi_card("JOURS ACTIFS MOYENS <span title='Nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.' style='cursor:help;'>ℹ️</span>", freq_val, freq_subtitle)
 
         if has_data:
             kpi_insight = prepare_kpi_interpretation(
@@ -1927,6 +1926,14 @@ if selected_tab == "Vue d'ensemble":
             next_actions = prepare_kpi_recommendations(metrics, is_booking=is_booking)
 
             st.markdown("### Insight stratégique")
+            st.markdown(
+                "<div style='margin-bottom: 10px;'>"
+                "<span style='background-color:#E8F0FE; color:#1967D2; padding:4px 8px; border-radius:4px; font-size:0.8em; font-weight:500;'>"
+                "Insight analytique automatique</span> "
+                "<span style='font-size:0.85em; color:gray;'>"
+                "Basé sur les KPI calculés à partir des données du service.</span></div>",
+                unsafe_allow_html=True
+            )
 
             st.markdown(
                 f'''
