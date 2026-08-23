@@ -922,21 +922,30 @@ available_services = sorted(
 )
 
 # ── En-tête Principal ──────────────────────────────────────────────────────────
-st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
-st.title(selected_tab)
+header_container = st.container()
 
 if selected_tab == "Vue d'ensemble":
-    st.caption("Comprendre l'adoption. Identifier ce qui compte. Agir avec confiance.")
+    subtitle_text = "Comprendre l'adoption. Identifier ce qui compte. Agir avec confiance."
 elif selected_tab == "Learning Center":
-    st.caption("Analyse détaillée de l'adoption du Learning Center.")
+    subtitle_text = "Analyse détaillée de l'adoption du Learning Center."
 elif selected_tab == "Adoption détaillée":
-    st.caption("Vue granulaire de l'utilisation par département et profil.")
+    subtitle_text = "Vue granulaire de l'utilisation par département et profil."
 elif selected_tab == "Security Analytics":
-    st.caption("Surveillance et détection d'activités suspectes.")
+    subtitle_text = "Surveillance et détection d'activités suspectes."
 elif selected_tab == "Booking":
-    st.caption("Analyse des réservations et de l'utilisation des espaces.")
+    subtitle_text = "Analyse des réservations et de l'utilisation des espaces."
 elif selected_tab == "Assistant IA":
-    st.caption("Métriques d'utilisation de l'assistant intelligent.")
+    subtitle_text = "Métriques d'utilisation de l'assistant intelligent."
+else:
+    subtitle_text = ""
+
+with header_container:
+    col_t, col_f = st.columns([3, 1])
+    with col_t:
+        st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
+        st.markdown(f'<h1>{selected_tab}</h1>', unsafe_allow_html=True)
+        st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
+    freshness_placeholder = col_f.empty()
 
 # ── Variables globales par défaut ──────────────────────────────────────────────
 selected_service = "Tous les services"
@@ -945,6 +954,28 @@ filtered_usage = data.usage_events.copy()
 current_window = None
 kpi_usage = filtered_usage
 previous_usage = pd.DataFrame()
+
+
+def format_badges(df):
+    df_styled = df.copy()
+
+    def to_badge(val):
+        if not isinstance(val, str): return val
+        v = val.strip()
+        v_low = v.lower()
+        if v_low in ["fort usage", "disponible"]:
+            return f'<span class="badge badge-success">{v}</span>'
+        elif v_low in ["à surveiller", "non disponible"]:
+            return f'<span class="badge badge-danger">{v}</span>'
+        elif v_low in ["partiel", "mapping partiel", "en cours"]:
+            return f'<span class="badge badge-warning">{v}</span>'
+        return val
+
+    for col in df_styled.columns:
+        if df_styled[col].dtype == 'object':
+            df_styled[col] = df_styled[col].apply(to_badge)
+
+    return df_styled
 
 def prepare_evolution_interpretation(
     trend_df: pd.DataFrame,
@@ -1686,8 +1717,6 @@ if selected_tab == "Vue d'ensemble":
         else:
             period_info = f"{current_window.start_date.strftime('%d/%m/%Y')} — {current_window.end_date.strftime('%d/%m/%Y')}"
 
-        st.caption(f"**Période utilisée :** {period_info}")
-
         st.subheader("Ce qui mérite votre attention")
         signals = []
 
@@ -1771,17 +1800,20 @@ if selected_tab == "Vue d'ensemble":
                         "action": "Action : fournir le mapping utilisateur — organisation."
                     })
 
-        for sig in signals[:2]:
-            st.markdown(
-                f'''
-                <div class="attention-card attention-{sig["type"]}">
-                    <h4>{sig["title"]}</h4>
-                    <p>{sig["message"]}</p>
-                    {f'<div class="attention-action">{sig["action"]}</div>' if sig["action"] else ""}
-                </div>
-                ''',
-                unsafe_allow_html=True
-            )
+        if signals:
+            cols = st.columns(len(signals[:3]))
+            for i, sig in enumerate(signals[:3]):
+                with cols[i]:
+                    st.markdown(
+                        f'''
+                        <div class="attention-card attention-{sig["type"]}">
+                            <h4>{sig["title"]}</h4>
+                            <p>{sig["message"]}</p>
+                            {f'<div class="attention-action" style="margin-top: 8px; font-size: 13px; font-weight: 600;">{sig["action"]}</div>' if sig.get("action") else ""}
+                        </div>
+                        ''',
+                        unsafe_allow_html=True
+                    )
 
     if current_window is not None and current_window.label not in ("Toute la période disponible", "Dernière date disponible"):
         kpi_reference_date = current_window.end_date
@@ -1866,7 +1898,7 @@ if selected_tab == "Vue d'ensemble":
         )
 
         if overview["table_data"]:
-            st.dataframe(pd.DataFrame(overview["table_data"]), hide_index=True)
+            st.markdown(format_badges(pd.DataFrame(overview["table_data"])).to_html(escape=False, index=False), unsafe_allow_html=True)
 
     else:
 
@@ -1909,57 +1941,50 @@ if selected_tab == "Vue d'ensemble":
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
         with kpi1:
-            render_kpi_card("UTILISATEURS ACTIFS<br>QUOTIDIENS", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>DAU</div>{dau_val}", "Actifs sur la journée de référence")
+            render_kpi_card("Utilisateurs actifs / jour", f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>DAU</span><br>{dau_val}", "Actifs sur la journée de référence")
         with kpi2:
-            render_kpi_card("UTILISATEURS ACTIFS<br>HEBDOMADAIRES", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>WAU</div>{wau_val}", "Actifs sur les 7 derniers jours")
+            render_kpi_card("Utilisateurs actifs / semaine", f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>WAU</span><br>{wau_val}", "Actifs sur les 7 derniers jours")
         with kpi3:
-            render_kpi_card("UTILISATEURS ACTIFS<br>MENSUELS", f"<div style='font-size:0.5em; color:gray; line-height:1; font-weight:normal; margin-bottom:5px;'>MAU</div>{mau_val}", "Actifs sur les 30 derniers jours")
+            render_kpi_card("Utilisateurs actifs / mois", f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>MAU</span><br>{mau_val}", "Actifs sur les 30 derniers jours")
         with kpi4:
-            with st.container(border=True):
-                # Ajout de style pour adapter le bouton au design de la carte
-                st.markdown(
-                    """
-                    <style>
-                    /* Suppression du padding par defaut de la colonne pour bien aligner le bouton */
-                    [data-testid="column"]:nth-child(4) [data-testid="stVerticalBlockBorderWrapper"] {
-                        padding: 15px 20px;
-                        border-radius: 12px;
-                    }
-                    /* Style discret du bouton popover */
-                    [data-testid="column"]:nth-child(4) button[kind="secondary"] {
-                        padding: 0;
-                        border: none;
-                        background: transparent;
-                        box-shadow: none;
-                        float: right;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                col_t, col_p = st.columns([5, 1])
-                with col_t:
-                    st.markdown('<div class="kpi-card-title" style="margin-top: 4px;">JOURS ACTIFS MOYENS</div>', unsafe_allow_html=True)
-                with col_p:
-                    with st.popover("ℹ️"):
-                        st.markdown("**Que signifie cet indicateur ?**")
-                        exact_val_str = ""
-                        if freq_val != "Non disponible" and "avg_days" in locals() and avg_days is not None:
-                            exact_val_str = f"Valeur calculée exacte : {str(avg_days).replace('.', ',')} jours.\n\nCela correspond à environ {rounded_avg_days} jours distincts d'activité par utilisateur actif sur les 30 derniers jours.\n\n"
-                        st.markdown(exact_val_str + "Il représente le nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.")
-                        st.markdown("Exemple : si un utilisateur réalise plusieurs actions le même jour, cette journée compte une seule fois.")
-                        st.markdown("Cet indicateur ne représente ni le nombre de connexions, ni le nombre de sessions, ni le nombre d'événements, ni la durée d'utilisation.")
-
-                st.markdown(
-                    f'''
-                    <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
-                        <div class="kpi-card-value">{freq_val}</div>
-                        <div class="kpi-card-subtitle">{freq_subtitle}</div>
-                    </div>
-                    ''',
-                    unsafe_allow_html=True
-                )
+            st.markdown(
+                """
+                <style>
+                div[data-testid="column"]:nth-child(4) {
+                    position: relative;
+                }
+                div[data-testid="column"]:nth-child(4) div[data-testid="stPopover"] {
+                    position: absolute;
+                    top: 16px;
+                    right: 16px;
+                    z-index: 10;
+                }
+                div[data-testid="column"]:nth-child(4) button[kind="secondary"] {
+                    background: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    min-height: 0 !important;
+                    line-height: 1 !important;
+                }
+                div[data-testid="column"]:nth-child(4) button[kind="secondary"] span[data-testid="stIconMaterial"],
+                div[data-testid="column"]:nth-child(4) button[kind="secondary"] span.material-symbols-rounded,
+                div[data-testid="column"]:nth-child(4) button[kind="secondary"] span:not(:first-child) {
+                    display: none !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+            render_kpi_card("Jours actifs moyens / utilisateur", freq_val, freq_subtitle)
+            with st.popover("ℹ️"):
+                st.markdown("**Que signifie cet indicateur ?**")
+                exact_val_str = ""
+                if freq_val != "Non disponible" and "avg_days" in locals() and avg_days is not None:
+                    exact_val_str = f"Valeur calculée exacte : {str(avg_days).replace('.', ',')} jours.\n\nCela correspond à environ {rounded_avg_days} jours distincts d'activité par utilisateur actif sur les 30 derniers jours.\n\n"
+                st.markdown(exact_val_str + "Il représente le nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.")
+                st.markdown("Exemple : si un utilisateur réalise plusieurs actions le même jour, cette journée compte une seule fois.")
+                st.markdown("Cet indicateur ne représente ni le nombre de connexions, ni le nombre de sessions, ni le nombre d'événements, ni la durée d'utilisation.")
 
         if has_data:
             kpi_insight = prepare_kpi_interpretation(
@@ -1973,9 +1998,9 @@ if selected_tab == "Vue d'ensemble":
             st.markdown("### Insight stratégique")
             st.markdown(
                 "<div style='margin-bottom: 10px;'>"
-                "<span style='background-color:#E8F0FE; color:#1967D2; padding:4px 8px; border-radius:4px; font-size:0.8em; font-weight:500;'>"
+                "<span class='badge badge-info'>"
                 "Insight analytique automatique</span> "
-                "<span style='font-size:0.85em; color:gray;'>"
+                "<span style='font-size:13px; color:#667085; margin-left:8px;'>"
                 "Basé sur les KPI calculés à partir des données du service.</span></div>",
                 unsafe_allow_html=True
             )
@@ -1983,11 +2008,12 @@ if selected_tab == "Vue d'ensemble":
             st.markdown(
                 f'''
                 <div class="strategic-card">
-                    <strong>Ce qui se passe</strong><br>
-                    {kpi_insight.get("observation", "")}
-                    <br><br>
-                    <strong>Pourquoi cela compte</strong><br>
-                    {kpi_insight.get("interpretation", "")}
+                    <div style="font-size: 16px; font-weight: 700; color: #111318; line-height: 1.4; margin-bottom: 8px;">
+                        {kpi_insight.get("observation", "")}
+                    </div>
+                    <div style="font-size: 14px; color: #667085; line-height: 1.6;">
+                        {kpi_insight.get("interpretation", "")}
+                    </div>
                 </div>
                 ''',
                 unsafe_allow_html=True,
@@ -2001,9 +2027,9 @@ if selected_tab == "Vue d'ensemble":
 
                 st.markdown(
                     f'''
-                    <div class="next-action">
-                        <strong>Next Actions</strong>
-                        <ul>
+                    <div class="next-action" style="font-size: 14px;">
+                        <strong style="color: #E94B00;">Next Actions</strong>
+                        <ul style="margin-top: 8px; margin-bottom: 0;">
                             {actions_html}
                         </ul>
                     </div>
@@ -2079,8 +2105,14 @@ if selected_tab == "Vue d'ensemble":
     with st.container(border=True):
         if unified_trend.empty:
             st.subheader("Évolution de l’usage")
-            st.info("Non disponible")
-            st.caption("Aucune donnée observée sur la période sélectionnée.")
+            st.markdown(
+                "<div class='data-unavailable'>"
+                "<span class='unavail-icon'>📉</span>"
+                "<span>Aucune donnée d’évolution disponible sur cette période. "
+                "Élargissez la plage temporelle ou vérifiez les sources du service sélectionné.</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
         else:
             is_all_services_view = (selected_service == "Tous les services")
 
@@ -2145,8 +2177,14 @@ if selected_tab == "Vue d'ensemble":
                             "Une tendance temporelle ne peut pas être analysée.")
             else:
                 if trend_to_display.empty:
-                    st.info("Non disponible")
-                    st.caption("Aucune donnée observée sur la période sélectionnée pour ce service.")
+                    st.markdown(
+                        "<div class='data-unavailable'>"
+                        "<span class='unavail-icon'>📅</span>"
+                        "<span>Aucune donnée de tendance disponible pour ce service sur la période sélectionnée. "
+                        "Élargissez la période ou vérifiez les sources de données.</span>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
                 else:
                     fig = px.line(
                         trend_to_display,
@@ -2156,9 +2194,9 @@ if selected_tab == "Vue d'ensemble":
                         labels={"date": "Date", selected_kpi: selected_metric_label, "service": "Service"},
                         markers=True,
                         color_discrete_map={
-                            "Booking": "#1f77d0",
-                            "Learning Center": "#ff8a00",
-                            "Ecommerce Demo": "#2ca02c"
+                            "Booking": "#E94B00",
+                            "Learning Center": "#2E7D32",
+                            "Ecommerce Demo": "#2563EB"
                         }
                     )
 
@@ -2216,31 +2254,20 @@ if selected_tab == "Vue d'ensemble":
             ]
 
             if meaningful_rows.empty:
-                st.info("Mapping organisationnel non disponible pour cette sélection.")
+                st.markdown(
+                    "<div class='data-unavailable'>"
+                    "<span class='unavail-icon'>🏢</span>"
+                    "<span>Le mapping utilisateur → organisation n’est pas encore disponible. "
+                    "Sans ce référentiel, l’usage ne peut pas être rattaché à un campus ou une direction.</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
             elif len(meaningful_rows) < len(unified_entity_usage):
-                st.info("Mapping partiel")
-            st.dataframe(
-                unified_entity_usage,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Utilisateurs actifs": st.column_config.NumberColumn(
-                        "Utilisateurs actifs",
-                        format="%d",
-                    ),
-                    "Événements": st.column_config.NumberColumn(
-                        "Événements",
-                        format="%d",
-                    ),
-                    "Événements / utilisateur": st.column_config.NumberColumn(
-                        "Événements / utilisateur",
-                        format="%.2f",
-                    ),
-                    "Part des utilisateurs actifs (%)": st.column_config.NumberColumn(
-                        "Part des utilisateurs actifs (%)",
-                        format="%.2f",
-                    ),
-                },
+                st.warning("⚠️ Mapping partiel : certains utilisateurs ne sont pas rattachés à une organisation.")
+            html_table = format_badges(unified_entity_usage).to_html(escape=False, index=False)
+            st.markdown(
+                f"<div class='scrollable-table-wrapper'>{html_table}</div>",
+                unsafe_allow_html=True,
             )
 
     # ── Adoption par campus (Service spécifique) ──────────────────────────────
@@ -2328,10 +2355,10 @@ if selected_tab == "Vue d'ensemble":
                                     df_display = pd.DataFrame(display_rows)
                                     df_display = df_display.sort_values(by="_sort_val", ascending=False).drop(columns=["_sort_val"])
 
-                                    st.dataframe(
-                                        df_display,
-                                        hide_index=True,
-                                        width="stretch"
+                                    html_campus = format_badges(df_display).to_html(escape=False, index=False, classes=["campus-table"]).replace("<table", "<table style='width: 100%;'")
+                                    st.markdown(
+                                        f"<div class='scrollable-table-wrapper'>{html_campus}</div>",
+                                        unsafe_allow_html=True,
                                     )
                                 else:
                                     st.info("Adoption par campus non disponible")
@@ -2413,10 +2440,11 @@ if selected_tab == "Vue d'ensemble":
                 st.dataframe(
                     unified_top_interactions,
                     hide_index=True,
-                    width="stretch",
+                    use_container_width=True,
                     column_config={
+                        "Interaction": st.column_config.TextColumn("Interaction"),
                         "Utilisateurs distincts": st.column_config.NumberColumn(
-                            "Adresses IP distinctes" if selected_service == "Learning Center" else "Utilisateurs",
+                            "Adresses IP distinctes" if selected_service == "Learning Center" else "Utilisateurs distincts",
                             format="%d",
                         ),
                         "Événements": st.column_config.NumberColumn(
@@ -2428,6 +2456,7 @@ if selected_tab == "Vue d'ensemble":
                             format="%.2f",
                         ),
                     },
+                    column_order=("Interaction", "Utilisateurs distincts", "Événements", "Part des événements (%)", "Module") if "Module" in unified_top_interactions.columns else ("Interaction", "Utilisateurs distincts", "Événements", "Part des événements (%)")
                 )
 
 
@@ -2574,7 +2603,7 @@ if selected_tab == "Learning Center":
     with route_left:
         with st.container(border=True):
             st.subheader("Pages / routes les plus consultées")
-            st.dataframe(lc_vm.top_routes.head(25), hide_index=True)
+            st.markdown(format_badges(lc_vm.top_routes.head(25)).to_html(escape=False, index=False), unsafe_allow_html=True)
     with route_right:
         with st.container(border=True):
             st.subheader("Répartition par type de route")
@@ -2627,18 +2656,14 @@ if selected_tab == "Adoption détaillée":
                     }
                 )
 
-                st.dataframe(
-                    entity_usage,
-                    hide_index=True,
-                    width="stretch",
-                )
+                st.markdown(format_badges(entity_usage).to_html(escape=False, index=False), unsafe_allow_html=True)
             else:
                 st.info("Aucune donnée d’usage par entité ou campus disponible.")
 
 
     #with st.container(border=True):
      #   st.subheader("Utilisateurs inactifs")
-      #  st.dataframe(adoption_vm.inactive, hide_index=True)
+      #  st.markdown(format_badges(adoption_vm.inactive).to_html(escape=False, index=False), unsafe_allow_html=True)
 
     #st.subheader("Synthèse hebdomadaire")
     #st.write(adoption_vm.weekly_summary)
@@ -2665,13 +2690,13 @@ if selected_tab == "Security Analytics":
 
         with st.container(border=True):
             st.subheader("IP sources les plus actives")
-            st.dataframe(security_vm.top_ips, hide_index=True)
+            st.markdown(format_badges(security_vm.top_ips).to_html(escape=False, index=False), unsafe_allow_html=True)
     else:
         st.info("Aucune route suspecte détectée dans l'échantillon `nginx-events.csv` configuré.")
 
     with st.container(border=True):
         st.subheader("Événements suspects")
-        st.dataframe(security_vm.suspicious_events.head(1000), hide_index=True)
+        st.markdown(format_badges(security_vm.suspicious_events.head(1000)).to_html(escape=False, index=False), unsafe_allow_html=True)
 
 
 # ── Onglet Booking ────────────────────────────────────────────────────────────
@@ -2727,6 +2752,13 @@ if selected_tab == "Booking":
                     y=["dau", "wau", "mau"],
                     markers=True,
                     title="Évolution DAU / WAU / MAU - Booking",
+                    color_discrete_sequence=["#E94B00", "#B76A00", "#F59E0B"]
+                )
+                fig.update_layout(
+                    plot_bgcolor="white",
+                    paper_bgcolor="white",
+                    xaxis=dict(showgrid=True, gridcolor="#F0F2F5", showline=True, linecolor="#E3E6EA"),
+                    yaxis=dict(showgrid=True, gridcolor="#F0F2F5", showline=True, linecolor="#E3E6EA")
                 )
                 st.plotly_chart(fig, width="stretch")
             else:
@@ -2778,13 +2810,20 @@ if selected_tab == "Booking":
                 x="action",
                 y="events",
                 title="Top actions Booking",
+                color_discrete_sequence=["#E94B00"]
+            )
+            fig_actions.update_layout(
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                xaxis=dict(showgrid=True, gridcolor="#F0F2F5", showline=True, linecolor="#E3E6EA"),
+                yaxis=dict(showgrid=True, gridcolor="#F0F2F5", showline=True, linecolor="#E3E6EA")
             )
             st.plotly_chart(fig_actions, width="stretch")
 
             st.subheader("Usage par entité / campus")
 
             booking_breakdown = departmental_breakdown(booking_usage).head(10)
-            st.dataframe(booking_breakdown, width="stretch")
+            st.markdown(format_badges(booking_breakdown).to_html(escape=False, index=False), unsafe_allow_html=True)
         else:
             st.info("Aucun événement d’usage Booking disponible.")
 
@@ -2792,7 +2831,8 @@ if selected_tab == "Booking":
 # ── Onglet Assistant IA ───────────────────────────────────────────────────────
 
 if selected_tab == "Assistant IA":
-    st.subheader("Assistant IA d’adoption")
+    st.subheader("Assistant IA — Analyse d’adoption")
+    st.caption("Posez une question en langage naturel. L’assistant fournit des réponses concises, orientées vers l’action.")
 
     # Instance du moteur (LLMEngine ou KeywordEngine en fallback)
     assistant = create_assistant_engine(dashboard_service)
@@ -2813,7 +2853,6 @@ if selected_tab == "Assistant IA":
     col1, col2 = st.columns([3, 1])
 
     with col1:
-        st.markdown("Interrogez les indicateurs d'adoption en langage naturel.")
         if is_keyword:
             st.caption("⚠️ Mode de secours déterministe (mots-clés) actif.")
 
@@ -2823,8 +2862,7 @@ if selected_tab == "Assistant IA":
                 {
                     "role": "assistant",
                     "content": (
-                        "Nouvelle conversation démarrée. "
-                        "Quelle analyse souhaitez-vous effectuer ?"
+                        "Nouvelle session démarrée. Quelle décision souhaitez-vous éclairer ?"
                     ),
                 }
             ]
