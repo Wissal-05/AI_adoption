@@ -889,7 +889,7 @@ def prepare_data_quality_recommendations(
 # ── Sidebar — Navigation ──────────────────────────────────────────────────────
 logo_path = ROOT / "assets" / "um6p_logo.png"
 if logo_path.exists():
-    st.sidebar.image(str(logo_path), use_container_width=True)
+    st.sidebar.image(str(logo_path), width="stretch")
 
 st.sidebar.markdown(
     '<div class="um6p-eyebrow" style="margin-bottom: 1.5rem;">ADOPTION ANALYTICS</div>',
@@ -900,19 +900,21 @@ selected_tab = st.sidebar.radio(
     "Navigation",
     options=[
         "Vue d'ensemble",
+        "Adoption détaillée",
         "Security Analytics",
         "Assistant IA"
     ],
     format_func=lambda x: {
-        "Vue d'ensemble": "📊 Vue d'ensemble",
-        "Security Analytics": "🛡️ Security Analytics",
-        "Assistant IA": "🤖 Assistant IA"
+        "Vue d'ensemble": "Vue d'ensemble",
+        "Adoption détaillée": "Analyse d'usage",
+        "Security Analytics": "Qualité & sécurité",
+        "Assistant IA": "Assistant IA"
     }.get(x, x),
     label_visibility="collapsed"
 )
 
 st.sidebar.markdown("<br><br>", unsafe_allow_html=True)
-if st.sidebar.button("Rafraîchir les données", use_container_width=True):
+if st.sidebar.button("Rafraîchir les données", width="stretch"):
     load_data.clear()
     st.rerun()
 
@@ -951,13 +953,13 @@ with header_container:
             st.markdown(f'<h1>Adoption Analytics UM6P</h1>', unsafe_allow_html=True)
             st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
             
-            if not data.usage_events.empty:
-                max_date = data.usage_events["event_timestamp"].max()
-                date_str = max_date.strftime("%d/%m/%Y") if pd.notnull(max_date) else "N/A"
-            else:
-                date_str = "N/A"
-            num_services = len(available_services)
-            st.markdown(f'<p style="color: #667085; font-size: 0.95rem; margin-top: -10px;">Dernière analyse : <strong>{date_str}</strong> &nbsp;|&nbsp; Services suivis : <strong>{num_services}</strong></p>', unsafe_allow_html=True)
+            st.markdown('''
+            <div style="background-color: #F8F9FA; border-left: 4px solid #E94B00; padding: 12px 16px; margin-top: 16px; border-radius: 4px; font-size: 0.9rem; color: #495057;">
+                <strong>Périmètre actuel :</strong> Learning Center web logs<br>
+                <strong>Période d'analyse :</strong> Juillet - Août 2026<br>
+                <em style="color: #6C757D; font-size: 0.85rem; display: inline-block; margin-top: 4px;">De nouvelles sources de données pourront être intégrées ultérieurement.</em>
+            </div>
+            ''', unsafe_allow_html=True)
         else:
             st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
             st.markdown(f'<h1>{selected_tab}</h1>', unsafe_allow_html=True)
@@ -1900,12 +1902,12 @@ if selected_tab == "Vue d'ensemble":
             render_kpi_card("Services suivis", str(overview["services_suivis"]), "Total configuré")
         with kpi2:
             total_active = sum(row.get("MAU", 0) for row in overview["table_data"])
-            render_kpi_card("Utilisateurs actifs", f"{total_active:,}".replace(",", " "), "Cumul mensuel estimé")
+            render_kpi_card("MAU cumulés observés", f"{total_active:,}".replace(",", " "), "Somme des utilisateurs actifs par service")
         with kpi3:
-            render_kpi_card("Volume d'activité", f"{overview['volume_observe']:,}".replace(",", " "), "Événements totaux")
+            render_kpi_card("Événements analysés", f"{overview['volume_observe']:,}".replace(",", " "), "Événements totaux")
         with kpi4:
-            qualite_statut = "À surveiller" if overview["fraicheur"] == "Hétérogène" else "Optimale"
-            render_kpi_card("Qualité des données", qualite_statut, f"Fraîcheur : {overview['fraicheur']}")
+            qualite_statut = "À surveiller" if overview["fraicheur"] == "Hétérogène" else "OK"
+            render_kpi_card("Contrôle données", qualite_statut, f"Fraîcheur : {overview['fraicheur']}")
 
         with st.expander("Détails techniques et limites des données"):
             st.markdown(
@@ -2231,7 +2233,7 @@ if selected_tab == "Vue d'ensemble":
                         )
                     )
 
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
     dept_df = departmental_breakdown(filtered_usage)
@@ -2456,7 +2458,7 @@ if selected_tab == "Vue d'ensemble":
                 st.dataframe(
                     unified_top_interactions,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                         "Interaction": st.column_config.TextColumn("Interaction"),
                         "Utilisateurs distincts": st.column_config.NumberColumn(
