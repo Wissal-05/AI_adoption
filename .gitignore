@@ -1,12 +1,16 @@
 ﻿.venv/
+venv/
 __pycache__/
 *.py[cod]
 .env
 .streamlit/secrets.toml
 .pytest_cache/
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 logs/
+logs/*.log
+.streamlit/
 streamlit*.log
 data/raw/*
 data/processed/*

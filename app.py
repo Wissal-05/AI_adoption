@@ -903,6 +903,11 @@ selected_tab = st.sidebar.radio(
         "Security Analytics",
         "Assistant IA"
     ],
+    format_func=lambda x: {
+        "Vue d'ensemble": "📊 Vue d'ensemble",
+        "Security Analytics": "🛡️ Security Analytics",
+        "Assistant IA": "🤖 Assistant IA"
+    }.get(x, x),
     label_visibility="collapsed"
 )
 
@@ -925,7 +930,7 @@ available_services = sorted(
 header_container = st.container()
 
 if selected_tab == "Vue d'ensemble":
-    subtitle_text = "Comprendre l'adoption. Identifier ce qui compte. Agir avec confiance."
+    subtitle_text = "Synthèse de l'utilisation des services numériques"
 elif selected_tab == "Learning Center":
     subtitle_text = "Analyse détaillée de l'adoption du Learning Center."
 elif selected_tab == "Adoption détaillée":
@@ -942,10 +947,23 @@ else:
 with header_container:
     col_t, col_f = st.columns([3, 1])
     with col_t:
-        st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
-        st.markdown(f'<h1>{selected_tab}</h1>', unsafe_allow_html=True)
-        st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
+        if selected_tab == "Vue d'ensemble":
+            st.markdown(f'<h1>Adoption Analytics UM6P</h1>', unsafe_allow_html=True)
+            st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
+            
+            if not data.usage_events.empty:
+                max_date = data.usage_events["event_timestamp"].max()
+                date_str = max_date.strftime("%d/%m/%Y") if pd.notnull(max_date) else "N/A"
+            else:
+                date_str = "N/A"
+            num_services = len(available_services)
+            st.markdown(f'<p style="color: #667085; font-size: 0.95rem; margin-top: -10px;">Dernière analyse : <strong>{date_str}</strong> &nbsp;|&nbsp; Services suivis : <strong>{num_services}</strong></p>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
+            st.markdown(f'<h1>{selected_tab}</h1>', unsafe_allow_html=True)
+            st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
     freshness_placeholder = col_f.empty()
+
 
 # ── Variables globales par défaut ──────────────────────────────────────────────
 selected_service = "Tous les services"
@@ -1738,12 +1756,11 @@ if selected_tab == "Vue d'ensemble":
                             latest_dates[srv] = srv_end.strftime('%d/%m/%Y')
 
                 if len(set(latest_dates.values())) > 1:
-                    details = "<br>".join([f"<strong>{s}</strong> : {d}" for s, d in latest_dates.items()])
                     signals.append({
                         "type": "warning",
-                        "title": "Fraîcheur des données hétérogène",
-                        "message": f"Les comparaisons entre services doivent tenir compte des différences de fraîcheur.<br><br>{details}",
-                        "action": None
+                        "title": "Qualité des données",
+                        "message": "Les sources présentent différentes dates de mise à jour.",
+                        "action": "Harmoniser les pipelines d'alimentation."
                     })
             else:
                 if current_window is not None and current_window.start_date == current_window.end_date:
@@ -1769,9 +1786,9 @@ if selected_tab == "Vue d'ensemble":
             if selected_service == "Tous les services":
                 signals.append({
                     "type": "info",
-                    "title": "Adoption globale non consolidée",
-                    "message": "Les populations éligibles et les identités utilisateurs ne sont pas homogènes entre les services. Aucun taux global d'adoption n'est calculé.",
-                    "action": "Analyser l'adoption service par service."
+                    "title": "Adoption globale",
+                    "message": "Identités utilisateurs non unifiées entre les services.",
+                    "action": "Mettre en place un identifiant unique."
                 })
             elif selected_service.lower() == "booking":
                 signals.append({
@@ -1882,23 +1899,26 @@ if selected_tab == "Vue d'ensemble":
         with kpi1:
             render_kpi_card("Services suivis", str(overview["services_suivis"]), "Total configuré")
         with kpi2:
-            render_kpi_card("Services avec données", str(overview["services_avec_donnees"]), "Actifs sur la période")
+            total_active = sum(row.get("MAU", 0) for row in overview["table_data"])
+            render_kpi_card("Utilisateurs actifs", f"{total_active:,}".replace(",", " "), "Cumul mensuel estimé")
         with kpi3:
-            render_kpi_card("Volume observé", f"{overview['volume_observe']:,}".replace(",", " "), "Événements totaux")
+            render_kpi_card("Volume d'activité", f"{overview['volume_observe']:,}".replace(",", " "), "Événements totaux")
         with kpi4:
-            render_kpi_card("Fraîcheur", overview["fraicheur"], "Dernière donnée")
+            qualite_statut = "À surveiller" if overview["fraicheur"] == "Hétérogène" else "Optimale"
+            render_kpi_card("Qualité des données", qualite_statut, f"Fraîcheur : {overview['fraicheur']}")
 
-        st.markdown(
-            "<p style='font-size: 0.9em; color: gray; font-style: italic; margin-top: 12px;'>"
-            "Les utilisateurs ne sont pas agrégés entre services car les "
-            "sources ne garantissent pas une identité utilisateur commune. "
-            "Les KPI sont présentés séparément par service et à leur propre dernière date disponible."
-            "</p>",
-            unsafe_allow_html=True
-        )
-
-        if overview["table_data"]:
-            st.markdown(format_badges(pd.DataFrame(overview["table_data"])).to_html(escape=False, index=False), unsafe_allow_html=True)
+        with st.expander("Détails techniques et limites des données"):
+            st.markdown(
+                "<p style='font-size: 0.9em; color: gray; font-style: italic; margin-top: 12px;'>"
+                "Les utilisateurs ne sont pas agrégés entre services car les "
+                "sources ne garantissent pas une identité utilisateur commune. "
+                "Les KPI sont présentés séparément par service et à leur propre dernière date disponible."
+                "</p>",
+                unsafe_allow_html=True
+            )
+    
+            if overview["table_data"]:
+                st.markdown(format_badges(pd.DataFrame(overview["table_data"])).to_html(escape=False, index=False), unsafe_allow_html=True)
 
     else:
 
@@ -1907,8 +1927,8 @@ if selected_tab == "Vue d'ensemble":
 
         is_booking = (selected_service.lower() == "booking")
 
-        freq_val = "Non disponible"
-        freq_subtitle = "Fréquence comparable non disponible"
+        freq_val = "Données insuffisantes"
+        freq_subtitle = "Fréquence comparable non calculable"
 
         if has_data and is_booking:
             extended = dashboard_service.get_service_extended_analytics(
@@ -1934,9 +1954,9 @@ if selected_tab == "Vue d'ensemble":
             wau_val = f"{int(metrics.get('wau', 0)):,}".replace(",", " ")
             mau_val = f"{int(metrics.get('mau', 0)):,}".replace(",", " ")
         else:
-            dau_val = "Non disponible"
-            wau_val = "Non disponible"
-            mau_val = "Non disponible"
+            dau_val = "Hors période"
+            wau_val = "Hors période"
+            mau_val = "Hors période"
 
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
@@ -2102,9 +2122,8 @@ if selected_tab == "Vue d'ensemble":
     if trend_warning and selected_period != "Dernière date disponible":
         st.info(trend_warning)
 
-    with st.container(border=True):
+    with st.expander("Évolution de l’usage", expanded=False):
         if unified_trend.empty:
-            st.subheader("Évolution de l’usage")
             st.markdown(
                 "<div class='data-unavailable'>"
                 "<span class='unavail-icon'>📉</span>"
@@ -2122,7 +2141,6 @@ if selected_tab == "Vue d'ensemble":
             )
 
             with evolution_title_col:
-                st.subheader("Évolution de l’usage")
                 st.caption("Suivre l'activité dans le temps et repérer les variations.")
 
             with metric_select_col:
@@ -2219,14 +2237,14 @@ if selected_tab == "Vue d'ensemble":
     dept_df = departmental_breakdown(filtered_usage)
     unified_entity_usage = prepare_unified_entity_usage_table(dept_df)
 
-    with st.container(border=True):
+    with st.expander("Usage observé par organisation", expanded=False):
         entity_title_col, entity_interpretation_col = st.columns(
             [4, 1],
             vertical_alignment="center",
         )
 
         with entity_title_col:
-            st.subheader("Usage observé par organisation")
+            pass
 
         entity_usage_interpretation = prepare_entity_usage_interpretation(
             unified_entity_usage,
@@ -2273,8 +2291,7 @@ if selected_tab == "Vue d'ensemble":
     # ── Adoption par campus (Service spécifique) ──────────────────────────────
 
     if True:
-        with st.container(border=True):
-            st.subheader("Adoption par campus")
+        with st.expander("Adoption par campus", expanded=False):
             st.caption("Comparer l'activité observée à la population éligible.")
 
             if selected_service == "Tous les services":
@@ -2370,8 +2387,7 @@ if selected_tab == "Vue d'ensemble":
     # ── Top interactions ──────────────────────────────────────────────────────
 
     if selected_service == "Tous les services":
-        with st.container(border=True):
-            st.subheader("Top interactions")
+        with st.expander("Top interactions", expanded=False):
             st.info("Sélectionnez un service pour analyser ses interactions.")
             st.caption(
                 "Les interactions (pages web vs actions métier) ont des dimensions différentes "
@@ -2384,14 +2400,14 @@ if selected_tab == "Vue d'ensemble":
         else:
             filtered_web_logs = data.web_logs
 
-        with st.container(border=True):
+        with st.expander("Top interactions", expanded=False):
             top_title_col, measure_select_col = st.columns(
                 [3, 1],
                 vertical_alignment="center",
             )
 
             with top_title_col:
-                st.subheader("Top interactions")
+                pass
 
             with measure_select_col:
                 measure_options = ["Utilisateurs distincts", "Événements observés"]
@@ -2463,8 +2479,7 @@ if selected_tab == "Vue d'ensemble":
 
     # ── Données manquantes / Qualité des données ──────────────────────────────
 
-    with st.container(border=True):
-        st.subheader("Qualité des données")
+    with st.expander("Qualité des données", expanded=False):
 
         if selected_service == "Tous les services":
             st.info("Qualité à analyser par service")

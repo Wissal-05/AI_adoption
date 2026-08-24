@@ -18,11 +18,8 @@ def apply_um6p_theme() -> None:
         /* Base Typography */
         @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
-        .stApp, .stApp :not(i):not(.material-icons):not(.material-symbols-rounded):not(.stIcon) {{
-            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }}
-
         .stApp {{
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             background-color: {BACKGROUND};
             color: {TEXT};
         }}
