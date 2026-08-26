@@ -166,8 +166,9 @@ def compute_booking_adoption_by_module(
     if not ev_window.empty and "module" in ev_window.columns:
         module_active_users = ev_window.groupby("module")["user_id"].nunique().to_dict()
     
-    # Transport telemetry check
-    has_transport_telemetry = not ev.empty and "module" in ev.columns and "TRANSPORT" in ev["module"].values
+    historical_modules = set()
+    if not ev.empty and "module" in ev.columns:
+        historical_modules = set(ev["module"].dropna().unique())
     
     results = []
     
@@ -183,43 +184,34 @@ def compute_booking_adoption_by_module(
         active = module_active_users.get(module, 0)
         eligible = eligible_grouped.get(module, 0)
         
-        if module == "TRANSPORT" and not has_transport_telemetry:
+        if module not in eligible_grouped or eligible <= 0:
             results.append({
                 "module": module,
                 "active_users": active,
+                "eligible_users": eligible,
+                "observed_adoption_rate": None,
+                "status": "eligible_population_unavailable"
+            })
+            continue
+            
+        if module not in historical_modules:
+            results.append({
+                "module": module,
+                "active_users": None,
                 "eligible_users": eligible,
                 "observed_adoption_rate": None,
                 "status": "telemetry_unavailable"
             })
             continue
             
-        if module not in eligible_grouped:
-            results.append({
-                "module": module,
-                "active_users": active,
-                "eligible_users": eligible,
-                "observed_adoption_rate": None,
-                "status": "eligible_population_unavailable"
-            })
-            continue
-            
-        if eligible > 0:
-            rate = round((active / eligible) * 100, 2)
-            results.append({
-                "module": module,
-                "active_users": active,
-                "eligible_users": eligible,
-                "observed_adoption_rate": rate,
-                "status": "available"
-            })
-        else:
-            results.append({
-                "module": module,
-                "active_users": active,
-                "eligible_users": eligible,
-                "observed_adoption_rate": None,
-                "status": "eligible_population_unavailable"
-            })
+        rate = round((active / eligible) * 100, 2)
+        results.append({
+            "module": module,
+            "active_users": active,
+            "eligible_users": eligible,
+            "observed_adoption_rate": rate,
+            "status": "available"
+        })
             
     return results
 
