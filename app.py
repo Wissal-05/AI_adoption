@@ -900,7 +900,6 @@ selected_tab = st.sidebar.radio(
     "Navigation",
     options=[
         "Vue d'ensemble",
-        "Adoption détaillée",
         "Security Analytics",
         "Assistant IA"
     ],
@@ -950,20 +949,18 @@ with header_container:
     col_t, col_f = st.columns([3, 1])
     with col_t:
         if selected_tab == "Vue d'ensemble":
-            st.markdown(f'<h1>Adoption Analytics UM6P</h1>', unsafe_allow_html=True)
-            st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
-            
-            st.markdown('''
-            <div style="background-color: #F8F9FA; border-left: 4px solid #E94B00; padding: 12px 16px; margin-top: 16px; border-radius: 4px; font-size: 0.9rem; color: #495057;">
-                <strong>Périmètre actuel :</strong> Learning Center web logs<br>
-                <strong>Période d'analyse :</strong> Juillet - Août 2026<br>
-                <em style="color: #6C757D; font-size: 0.85rem; display: inline-block; margin-top: 4px;">De nouvelles sources de données pourront être intégrées ultérieurement.</em>
-            </div>
-            ''', unsafe_allow_html=True)
+            st.markdown(
+                f'<h1>Adoption Analytics UM6P</h1>'
+                f'<p class="page-subtitle" style="margin-bottom: 0;">{subtitle_text}</p>', 
+                unsafe_allow_html=True
+            )
         else:
-            st.markdown('<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>', unsafe_allow_html=True)
-            st.markdown(f'<h1>{selected_tab}</h1>', unsafe_allow_html=True)
-            st.markdown(f'<p class="page-subtitle">{subtitle_text}</p>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="um6p-eyebrow" style="margin-top: 1.5rem;">ADOPTION ANALYTICS UM6P</div>'
+                f'<h1>{selected_tab}</h1>'
+                f'<p class="page-subtitle" style="margin-bottom: 0;">{subtitle_text}</p>', 
+                unsafe_allow_html=True
+            )
     freshness_placeholder = col_f.empty()
 
 
@@ -2899,7 +2896,24 @@ if selected_tab == "Assistant IA":
                 with st.expander("Détails de l'analyse"):
                     st.markdown(f"**Outils utilisés :** {', '.join(message['tool_calls'])}")
 
-    question = st.chat_input("Posez votre question sur les KPI d’adoption...")
+    question = None
+    if len(st.session_state.assistant_chat_history) == 1:
+        st.markdown("<br><p style='color: #6C757D; font-size: 0.9rem; margin-bottom: 8px;'>Exemples de questions :</p>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Quel est le MAU du Learning Center ?", use_container_width=True):
+                question = "Quel est le MAU du Learning Center ?"
+            if st.button("Quels services sont suivis ?", use_container_width=True):
+                question = "Quels services sont suivis ?"
+        with c2:
+            if st.button("Compare Booking et Learning Center", use_container_width=True):
+                question = "Compare Booking et Learning Center"
+            if st.button("Quels sont les problèmes de qualité des données ?", use_container_width=True):
+                question = "Quels sont les problèmes de qualité des données ?"
+
+    user_input = st.chat_input("Posez votre question sur les KPI d’adoption...")
+    if user_input:
+        question = user_input
 
     if question:
         st.session_state.assistant_chat_history.append(
