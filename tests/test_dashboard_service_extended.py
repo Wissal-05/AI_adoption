@@ -25,9 +25,9 @@ def mock_dashboard_service():
     })
     
     eligible = pd.DataFrame({
-        "service": ["HOUSING", "TRANSPORT"],
-        "campus_name": ["Benguerir", "Rabat"],
-        "eligible_users": [10, 0]
+        "service": ["HOUSING", "TRANSPORT", "NEW_MODULE"],
+        "campus_name": ["Benguerir", "Rabat", "Benguerir"],
+        "eligible_users": [10, 0, 5]
     })
     
     service._data = DashboardData(
@@ -56,16 +56,20 @@ def test_booking_extended_analytics(mock_dashboard_service):
     assert res.connection["connected_users_30d"] == 1
     
     # 3. Tous les modules sont retournés
-    # 5. TRANSPORT conserve None + telemetry_unavailable
+    # 5. TRANSPORT conserve None + eligible_population_unavailable
     modules = res.adoption_by_module
-    assert len(modules) == 3
+    assert len(modules) == 4
     transport = next(m for m in modules if m["module"] == "TRANSPORT")
-    assert transport["status"] == "telemetry_unavailable"
+    assert transport["status"] == "eligible_population_unavailable"
     assert transport["observed_adoption_rate"] is None
+    
+    new_module = next(m for m in modules if m["module"] == "NEW_MODULE")
+    assert new_module["status"] == "telemetry_unavailable"
+    assert new_module["observed_adoption_rate"] is None
     
     # 4. Adoption campus contient plusieurs modules
     campus = res.adoption_by_campus
-    assert len(campus) == 2
+    assert len(campus) == 3
     
     # 8. les métriques qualité sont exposées
     assert res.data_quality is not None

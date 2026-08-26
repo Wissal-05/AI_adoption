@@ -37,6 +37,7 @@ def compute_booking_usage_kpis(
             "weekly_recurrence_wau_mau": None,
             "avg_active_days_per_active_user_30d": 0.0,
             "median_active_days_per_active_user_30d": 0.0,
+            "observed_usage_intensity_30d": None,
             "technical_event_intensity": 0.0,
             "active_users_full_history": 0,
             "reference_date": reference_date
@@ -58,13 +59,15 @@ def compute_booking_usage_kpis(
     advanced = compute_advanced_adoption_kpis(base_metrics)
 
     # 2. Fenêtre 30 jours pour la fréquence (MAU window)
-    window_start = ref_date - pd.Timedelta(days=29)
+    window_days = 30
+    window_start = ref_date - pd.Timedelta(days=window_days - 1)
     window_data = data[data["date"] >= window_start]
     
     if window_data.empty:
         avg_active_days = 0.0
         median_active_days = 0.0
         tech_intensity = 0.0
+        observed_intensity = None
     else:
         # active days per user in the window
         active_days_per_user = window_data.groupby("user_id")["date"].nunique()
@@ -73,6 +76,7 @@ def compute_booking_usage_kpis(
         
         active_users_window = window_data["user_id"].nunique()
         tech_intensity = round(len(window_data) / active_users_window, 2) if active_users_window > 0 else 0.0
+        observed_intensity = round((avg_active_days / window_days) * 100, 2)
 
     return {
         "dau": base_metrics.get("dau", 0),
@@ -82,6 +86,7 @@ def compute_booking_usage_kpis(
         "weekly_recurrence_wau_mau": advanced.get("weekly_recurrence_wau_mau"),
         "avg_active_days_per_active_user_30d": avg_active_days,
         "median_active_days_per_active_user_30d": median_active_days,
+        "observed_usage_intensity_30d": observed_intensity,
         "technical_event_intensity": tech_intensity,
         "active_users_full_history": data["user_id"].nunique(),
         "reference_date": ref_date

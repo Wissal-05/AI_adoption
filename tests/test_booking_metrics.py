@@ -68,9 +68,9 @@ def test_booking_adoption_by_module_and_campus():
         "campus_name": ["Benguerir", "Rabat", "Benguerir", "Benguerir", "Benguerir"]
     })
     eligible = pd.DataFrame({
-        "service": ["HOUSING", "HOUSING", "CATERING", "TRANSPORT"],
-        "campus_name": ["Benguerir", "Rabat", "Benguerir", "Benguerir"],
-        "eligible_users": [10, 10, 5, 0] # Transport has 0 eligible... wait, instructions say Transport has no telemetry. 
+        "service": ["HOUSING", "HOUSING", "CATERING", "TRANSPORT", "NEW_MODULE"],
+        "campus_name": ["Benguerir", "Rabat", "Benguerir", "Benguerir", "Benguerir"],
+        "eligible_users": [10, 10, 5, 0, 5]
     })
     
     # 13. To simulate no transport telemetry, remove it from events
@@ -81,10 +81,41 @@ def test_booking_adoption_by_module_and_campus():
     
     assert mod_dict["HOUSING"]["observed_adoption_rate"] == 10.0 # 2 active / 20 eligible
     assert mod_dict["TRANSPORT"]["observed_adoption_rate"] is None
-    assert mod_dict["TRANSPORT"]["status"] == "telemetry_unavailable"
+    assert mod_dict["TRANSPORT"]["status"] == "eligible_population_unavailable"
     assert mod_dict["UNKNOWN"]["observed_adoption_rate"] is None
     assert mod_dict["UNKNOWN"]["status"] == "eligible_population_unavailable"
+    
+    assert mod_dict["NEW_MODULE"]["status"] == "telemetry_unavailable"
+    assert mod_dict["NEW_MODULE"]["active_users"] is None
+    assert mod_dict["NEW_MODULE"]["observed_adoption_rate"] is None
 
+def test_booking_usage_intensity():
+    dates = []
+    users = []
+    base_date = pd.Timestamp("2026-08-12")
+    for i in range(100):
+        days = 4 if i < 84 else 3
+        for d in range(days):
+            dates.append(base_date - pd.Timedelta(days=d))
+            users.append(f"u{i}")
+    events = pd.DataFrame({"event_timestamp": dates, "user_id": users})
+    res = compute_booking_usage_kpis(events, reference_date=base_date)
+    assert res["avg_active_days_per_active_user_30d"] == 3.84
+    assert res["observed_usage_intensity_30d"] == 12.8
+
+def test_booking_adoption_by_campus():
+    events = pd.DataFrame({
+        "event_timestamp": ["2026-08-12"] * 5,
+        "user_id": ["u1", "u2", "u3", "u4", "u5"],
+        "module": ["HOUSING", "HOUSING", "CATERING", "UNKNOWN", "TRANSPORT"],
+        "campus_name": ["Benguerir", "Rabat", "Benguerir", "Benguerir", "Benguerir"]
+    })
+    eligible = pd.DataFrame({
+        "service": ["HOUSING", "HOUSING", "CATERING", "TRANSPORT", "NEW_MODULE"],
+        "campus_name": ["Benguerir", "Rabat", "Benguerir", "Benguerir", "Benguerir"],
+        "eligible_users": [10, 10, 5, 0, 5]
+    })
+    events_no_trans = events[events["module"] != "TRANSPORT"]
     res_camp = compute_booking_adoption_by_campus(events_no_trans, eligible, users_df=pd.DataFrame())
     camp_dict = {(r["module"], r["campus"]): r for r in res_camp}
     assert camp_dict[("HOUSING", "Benguerir")]["observed_adoption_rate"] == 10.0 # 1 active / 10 eligible
