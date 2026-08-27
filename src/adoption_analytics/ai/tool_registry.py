@@ -288,7 +288,9 @@ class ToolRegistry:
                     "dau": dau,
                     "wau": wau,
                     "mau": mau,
-                    "frequency": frequency
+                    "frequency": frequency,
+                    "median_active_days_per_active_user_30d": usage.get("median_active_days_per_active_user_30d"),
+                    "observed_usage_intensity_30d": usage.get("observed_usage_intensity_30d")
                 }
             )
         else:

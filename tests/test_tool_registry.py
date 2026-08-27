@@ -35,6 +35,8 @@ def mock_dashboard_service():
         "wau": 35,
         "mau": 137,
         "avg_active_days_per_active_user_30d": 3.84,
+        "median_active_days_per_active_user_30d": 2.0,
+        "observed_usage_intensity_30d": 12.8,
         "technical_event_intensity": 500  # Should not be used
     }
     service.get_service_extended_analytics.return_value = extended_mock
@@ -96,6 +98,13 @@ def test_booking_frequency_uses_active_days(registry):
     assert freq["value"] == 3.84
     assert freq["unit"] == "days"
     assert freq["definition"] == "average_active_days_per_active_user_30d"
+
+
+def test_booking_exposes_intensity_indicators(registry):
+    result = registry.execute("get_usage_kpis", service="Booking")
+    assert result.data.get("median_active_days_per_active_user_30d") == 2.0
+    assert result.data.get("observed_usage_intensity_30d") == 12.8
+
 
 
 def test_booking_frequency_never_uses_technical_intensity(registry):
