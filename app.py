@@ -2133,13 +2133,13 @@ if selected_tab == "Vue d'ensemble":
                             rate_str = "Non calculable"
                         
                         active_u = m.get("active_users")
-                        active_str = "Non disponible" if active_u is None else int(active_u)
+                        active_str = "Non disponible" if active_u is None else str(int(active_u))
                         
                         eligible_u = m.get("eligible_users")
                         if st_val == "eligible_population_unavailable" or eligible_u is None or eligible_u <= 0:
                             eligible_str = "Non disponible"
                         else:
-                            eligible_str = int(eligible_u)
+                            eligible_str = str(int(eligible_u))
                         
                         adoption_data.append({
                             "Module": str(m.get("module", "")).capitalize(),
@@ -2148,7 +2148,8 @@ if selected_tab == "Vue d'ensemble":
                             "Taux d'adoption": rate_str
                         })
                     
-                    st.dataframe(pd.DataFrame(adoption_data), hide_index=True, use_container_width=True)
+                    df_display = pd.DataFrame(adoption_data).astype(str)
+                    st.dataframe(df_display, hide_index=True, use_container_width=True)
                     st.caption("Le taux d'adoption est calculé uniquement lorsque la population éligible et la télémétrie d'usage sont disponibles.")
                 else:
                     st.info("Données d'adoption et d'utilisation non disponibles.")
