@@ -48,8 +48,8 @@ def call_matomo_live_api(count_visitors_to_fetch: int = 100):
         "module": "API",
         "method": "Live.getLastVisitsDetails",
         "idSite": site_id,
-        "period": "day",
-        "date": "today",
+        "period": "range",
+        "date": "last30",
         "format": "JSON",
         "token_auth": token_auth,
         "countVisitorsToFetch": str(count_visitors_to_fetch),
@@ -184,7 +184,7 @@ def main() -> None:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    visits = call_matomo_live_api(count_visitors_to_fetch=100)
+    visits = call_matomo_live_api(count_visitors_to_fetch=1000)
 
     if not isinstance(visits, list):
         raise RuntimeError("La réponse Live.getLastVisitsDetails n'est pas une liste.")
@@ -195,9 +195,19 @@ def main() -> None:
     save_live_actions_csv(f"live_actions_{timestamp}.csv", action_rows)
 
     print("Extraction RAW Matomo terminée.")
-    print(f"Visites RAW : {len(visits)}")
-    print(f"Actions RAW : {len(action_rows)}")
-
+    print("fenêtre demandée : 30 derniers jours")
+    print(f"nombre de visites RAW : {len(visits)}")
+    print(f"nombre d'actions RAW : {len(action_rows)}")
+    
+    visitor_ids = {v.get("visitorId") for v in visits if v.get("visitorId")}
+    print(f"Visiteurs Matomo distincts : {len(visitor_ids)}")
+    
+    dates = {v.get("serverDate") for v in visits if v.get("serverDate")}
+    if dates:
+        sorted_dates = sorted(list(dates))
+        print(f"Jours distincts : {len(sorted_dates)}")
+        print(f"Date minimale : {sorted_dates[0]}")
+        print(f"Date maximale : {sorted_dates[-1]}")
 
 if __name__ == "__main__":
     main()
