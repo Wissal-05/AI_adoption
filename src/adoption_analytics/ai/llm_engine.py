@@ -35,6 +35,12 @@ Règles obligatoires :
 12. Ne dis jamais que le DAU correspond à "24 heures". Utilise "utilisateurs actifs sur la journée de référence" ou "utilisateurs actifs quotidiens".
 13. Ne présente aucune cause comme probable (ex: problème de communication, accessibilité, formation) sans donnée pour l'étayer. Si une valeur est faible, dis "ce point mérite une investigation" ou "les causes de cet écart ne peuvent pas être déterminées avec les données disponibles".
 14. Pour la Data Quality, ne dis jamais "doublons". Dis systématiquement "signatures événementielles répétées possibles". Précise que "l'absence d'un event_id unique ne permet pas de confirmer qu'il s'agit de doublons."
+15. observed_usage_intensity_30d correspond à : average_active_days_per_active_user_30d / 30 * 100. C'est une métrique descriptive d'intensité observée.
+16. Cette métrique n'est PAS : un taux d'adoption, un DAU/MAU, un objectif métier, ou un taux d'utilisation métier cible.
+17. En l'absence d'un benchmark ou d'une fréquence cible métier, ne jamais qualifier l'intensité ou la fréquence comme : faible, moyenne / modérée, élevée, bonne / mauvaise, intermittente, occasionnelle, régulière. Dire plutôt : "Cette valeur décrit l'usage observé. Son niveau ne peut pas être qualifié sans fréquence cible définie par le métier."
+18. Lorsqu'une question porte spécifiquement sur "intensité d'utilisation" et que observed_usage_intensity_30d est disponible : répondre d'abord avec cette valeur, donner ensuite la fréquence moyenne comme contexte, et éventuellement la médiane. Ne pas énumérer DAU, WAU et MAU sauf si cela est utile à la question ou explicitement demandé.
+19. Toujours dire "sur les 30 derniers jours disponibles" ou "sur une fenêtre de 30 jours". Ne pas dire "par mois" pour cette métrique.
+20. Pour la médiane, parler de "utilisateurs actifs" et non "utilisateurs engagés".
 """
 
 
@@ -75,8 +81,7 @@ class LLMEngine:
                         rag_context += f"\n[Source: {res['source']} | Section: {res['section']}]\n{res['content']}\n"
                         knowledge_sources.append({"source": res["source"], "section": res["section"]})
             except Exception:
-                pass  # Fallback gracefully to no RAG if retriever fails
-
+                rag_context = ""
         augmented_message = user_message + rag_context
 
         messages = [
@@ -90,7 +95,6 @@ class LLMEngine:
 
         for _ in range(max_rounds):
             try:
-                print("LLMEngine: initial_llm_call", flush=True)
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -99,13 +103,9 @@ class LLMEngine:
                     temperature=0.1
                 )
             except Exception as e:
-                print(f"LLMEngine: error {type(e).__name__} during initial_llm_call.", flush=True)
                 status_code = getattr(e, "status_code", None)
-                if status_code is not None:
-                    print(f"LLMEngine: status_code = {status_code}", flush=True)
 
                 if status_code in (400, 422):
-                    print("LLMEngine: Attempting one retry for client/semantic error.", flush=True)
                     try:
                         response = self.client.chat.completions.create(
                             model=self.model,
@@ -115,9 +115,6 @@ class LLMEngine:
                             temperature=0.0
                         )
                     except Exception as retry_e:
-                        print(f"LLMEngine: error {type(retry_e).__name__} during final_llm_call.", flush=True)
-                        if hasattr(retry_e, "status_code"):
-                            print(f"LLMEngine: status_code = {retry_e.status_code}", flush=True)
                         return AssistantResponse(
                             answer="Erreur lors de la communication avec l'assistant.",
                             tool_calls=used_tools,
@@ -156,12 +153,25 @@ class LLMEngine:
 
             # Convert response message properly to dict to append to messages (groq requirement)
             # The python SDK allows appending the message object directly
-            messages.append(response_message)
+            messages.append({
+                "role": "assistant",
+                "content": response_message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    }
+                    for tc in tool_calls
+                ]
+            })
 
             for tc in tool_calls:
                 func_name = tc.function.name
                 used_tools.append(func_name)
-                print(f"LLMEngine: tool_execution - {func_name}", flush=True)
                 try:
                     kwargs = json.loads(tc.function.arguments)
                     result = self.registry.execute(func_name, **kwargs)
@@ -185,11 +195,25 @@ class LLMEngine:
                 if getattr(result, "limitations", None):
                     all_limitations.extend(result.limitations)
 
+                try:
+                    tool_content = json.dumps(
+                        asdict(result),
+                        default=str,
+                        ensure_ascii=False
+                    )
+                except Exception:
+
+                    tool_content = json.dumps({
+                        "status": "error",
+                        "message": "Impossible de sérialiser le résultat du tool"
+                    })
+
+
                 tool_msg = {
                     "tool_call_id": tc.id,
                     "role": "tool",
                     "name": func_name,
-                    "content": json.dumps(asdict(result))
+                    "content": tool_content
                 }
                 messages.append(tool_msg)
 
