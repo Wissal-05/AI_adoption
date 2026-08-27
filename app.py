@@ -1957,14 +1957,29 @@ if selected_tab == "Vue d'ensemble":
             wau_val = "Hors période"
             mau_val = "Hors période"
 
+        if selected_service == "Ecommerce Demo":
+            dau_title = "Visiteurs actifs / jour"
+            wau_title = "Visiteurs actifs / semaine"
+            mau_title = "Visiteurs actifs / 30 jours"
+            dau_sub = "Visiteurs actifs sur la journée de référence"
+            wau_sub = "Visiteurs actifs sur les 7 derniers jours"
+            mau_sub = "Visiteurs actifs sur les 30 derniers jours"
+        else:
+            dau_title = "Utilisateurs actifs / jour"
+            wau_title = "Utilisateurs actifs / semaine"
+            mau_title = "Utilisateurs actifs / mois"
+            dau_sub = "Actifs sur la journée de référence"
+            wau_sub = "Actifs sur les 7 derniers jours"
+            mau_sub = "Actifs sur les 30 derniers jours"
+
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
         with kpi1:
-            render_kpi_card("Utilisateurs actifs / jour", f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>DAU</span><br>{dau_val}", "Actifs sur la journée de référence")
+            render_kpi_card(dau_title, f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>DAU</span><br>{dau_val}", dau_sub)
         with kpi2:
-            render_kpi_card("Utilisateurs actifs / semaine", f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>WAU</span><br>{wau_val}", "Actifs sur les 7 derniers jours")
+            render_kpi_card(wau_title, f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>WAU</span><br>{wau_val}", wau_sub)
         with kpi3:
-            render_kpi_card("Utilisateurs actifs / mois", f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>MAU</span><br>{mau_val}", "Actifs sur les 30 derniers jours")
+            render_kpi_card(mau_title, f"<span style='font-size:11px; color:#667085; font-weight:500; letter-spacing:0.02em;'>MAU</span><br>{mau_val}", mau_sub)
         with kpi4:
             st.markdown(
                 """
@@ -2013,6 +2028,44 @@ if selected_tab == "Vue d'ensemble":
             )
 
             next_actions = prepare_kpi_recommendations(metrics, is_booking=is_booking)
+
+            if selected_service == "Ecommerce Demo":
+                st.markdown("### Analyse Web Matomo")
+                
+                if has_data and not filtered_usage.empty:
+                    matomo_visitors = filtered_usage["user_id"].dropna().nunique()
+                    matomo_sessions = filtered_usage["session_id"].dropna().nunique() if "session_id" in filtered_usage.columns else 0
+                    matomo_actions = len(filtered_usage)
+                    
+                    if matomo_sessions > 0:
+                        actions_per_session = round(matomo_actions / matomo_sessions, 1)
+                        actions_per_session_str = str(actions_per_session).replace('.', ',')
+                    else:
+                        actions_per_session_str = "Non calculable"
+                else:
+                    matomo_visitors = 0
+                    matomo_sessions = 0
+                    matomo_actions = 0
+                    actions_per_session_str = "Non calculable"
+                
+                mkpi1, mkpi2, mkpi3, mkpi4 = st.columns(4)
+                with mkpi1:
+                    render_kpi_card("Visiteurs distincts", str(matomo_visitors), "")
+                with mkpi2:
+                    render_kpi_card("Sessions", str(matomo_sessions), "")
+                with mkpi3:
+                    render_kpi_card("Actions observées", str(matomo_actions), "")
+                with mkpi4:
+                    render_kpi_card("Actions / session", actions_per_session_str, "")
+                
+                st.markdown(
+                    "<div style='font-size:13px; color:#667085; margin-top:-5px; margin-bottom:20px;'>"
+                    "Source : Matomo données de démonstration Ecommerce Demo.<br><br>"
+                    "Les visiteurs sont distingués à l'aide du Visitor ID Matomo.<br>"
+                    "Aucun User ID authentifié n'est actuellement disponible."
+                    "</div>",
+                    unsafe_allow_html=True
+                )
 
             st.markdown("### Insight stratégique")
             st.markdown(
