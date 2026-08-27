@@ -2149,7 +2149,7 @@ if selected_tab == "Vue d'ensemble":
                         })
                     
                     df_display = pd.DataFrame(adoption_data).astype(str)
-                    st.dataframe(df_display, hide_index=True, use_container_width=True)
+                    st.dataframe(df_display, hide_index=True, width="stretch")
                     st.caption("Le taux d'adoption est calculé uniquement lorsque la population éligible et la télémétrie d'usage sont disponibles.")
                 else:
                     st.info("Données d'adoption et d'utilisation non disponibles.")
@@ -2960,14 +2960,14 @@ if selected_tab == "Assistant IA":
         st.markdown("<br><p style='color: #6C757D; font-size: 0.9rem; margin-bottom: 8px;'>Exemples de questions :</p>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Quel est le MAU du Learning Center ?", use_container_width=True):
+            if st.button("Quel est le MAU du Learning Center ?", width="stretch"):
                 question = "Quel est le MAU du Learning Center ?"
-            if st.button("Quels services sont suivis ?", use_container_width=True):
+            if st.button("Quels services sont suivis ?", width="stretch"):
                 question = "Quels services sont suivis ?"
         with c2:
-            if st.button("Compare Booking et Learning Center", use_container_width=True):
+            if st.button("Compare Booking et Learning Center", width="stretch"):
                 question = "Compare Booking et Learning Center"
-            if st.button("Quels sont les problèmes de qualité des données ?", use_container_width=True):
+            if st.button("Quels sont les problèmes de qualité des données ?", width="stretch"):
                 question = "Quels sont les problèmes de qualité des données ?"
 
     user_input = st.chat_input("Posez votre question sur les KPI d’adoption...")
