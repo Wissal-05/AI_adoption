@@ -424,12 +424,20 @@ def prepare_kpi_interpretation(
     else:
         observation_freq = "La fréquence d'usage comparable n'est pas disponible avec les métriques actuelles."
 
-    observation = (
-        f"{service_scope.capitalize()} compte {dau:,} utilisateurs actifs sur la journée de référence, "
-        f"{wau:,} utilisateurs actifs sur les 7 derniers jours et "
-        f"{mau:,} utilisateurs actifs sur les 30 derniers jours.\n\n"
-        f"{observation_freq}"
-    )
+    if service_scope == "Ecommerce Demo":
+        observation = (
+            f"{service_scope} compte {dau:,} visiteurs actifs sur la journée de référence, "
+            f"{wau:,} visiteurs actifs sur les 7 derniers jours et "
+            f"{mau:,} visiteurs actifs sur les 30 derniers jours.\n\n"
+            f"{observation_freq}"
+        )
+    else:
+        observation = (
+            f"{service_scope.capitalize()} compte {dau:,} utilisateurs actifs sur la journée de référence, "
+            f"{wau:,} utilisateurs actifs sur les 7 derniers jours et "
+            f"{mau:,} utilisateurs actifs sur les 30 derniers jours.\n\n"
+            f"{observation_freq}"
+        )
 
     if mau == 0:
         interpretation = (
@@ -462,6 +470,10 @@ def prepare_kpi_interpretation(
         "un vrai taux d’utilisation. Il est aussi recommandé d’analyser les résultats "
         "par service, entité et période pour éviter les conclusions globales trop rapides."
     )
+
+    if service_scope == "Ecommerce Demo":
+        interpretation = interpretation.replace("utilisateur", "visiteur").replace("Utilisateur", "Visiteur")
+        recommendation = recommendation.replace("utilisateur", "visiteur").replace("Utilisateur", "Visiteur")
 
     return {
         "observation": observation,
@@ -1173,6 +1185,11 @@ def prepare_evolution_interpretation(
             "les autres services. Pour conclure sur l’adoption réelle, compléter la population "
             "éligible par service."
         )
+
+    if selected_service == "Ecommerce Demo":
+        observation = observation.replace("utilisateur", "visiteur").replace("Utilisateur", "Visiteur")
+        interpretation = interpretation.replace("utilisateur", "visiteur").replace("Utilisateur", "Visiteur")
+        recommendation = recommendation.replace("utilisateur", "visiteur").replace("Utilisateur", "Visiteur")
 
     return {
         "observation": observation,
@@ -1928,6 +1945,25 @@ if selected_tab == "Vue d'ensemble":
 
         freq_val = "Données insuffisantes"
         freq_subtitle = "Fréquence comparable non calculable"
+        matomo_median_days = None
+
+        if has_data and selected_service == "Ecommerce Demo":
+            user_days = filtered_usage.groupby("user_id")["date"].nunique()
+            if not user_days.empty:
+                avg_active_days_matomo = user_days.mean()
+                median_active_days_matomo = user_days.median()
+                
+                formatted_avg = str(round(avg_active_days_matomo, 2)).replace('.', ',')
+                formatted_median = str(round(median_active_days_matomo, 1)).replace('.', ',').rstrip(',0')
+                if not formatted_median:
+                    formatted_median = '0'
+                
+                freq_val = f"{formatted_avg} jours"
+                freq_subtitle = "Sur la période sélectionnée"
+                matomo_median_days = formatted_median
+            else:
+                freq_val = "Non calculable"
+                freq_subtitle = "Sur la période sélectionnée"
 
         if has_data and is_booking:
             extended = dashboard_service.get_service_extended_analytics(
@@ -2010,15 +2046,25 @@ if selected_tab == "Vue d'ensemble":
                 """,
                 unsafe_allow_html=True
             )
-            render_kpi_card("Jours actifs moyens / utilisateur", freq_val, freq_subtitle)
-            with st.popover("ℹ️"):
-                st.markdown("**Que signifie cet indicateur ?**")
-                exact_val_str = ""
-                if freq_val != "Non disponible" and "avg_days" in locals() and avg_days is not None:
-                    exact_val_str = f"Valeur calculée exacte : {str(avg_days).replace('.', ',')} jours.\n\nCela correspond à environ {rounded_avg_days} jours distincts d'activité par utilisateur actif sur les 30 derniers jours.\n\n"
-                st.markdown(exact_val_str + "Il représente le nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.")
-                st.markdown("Exemple : si un utilisateur réalise plusieurs actions le même jour, cette journée compte une seule fois.")
-                st.markdown("Cet indicateur ne représente ni le nombre de connexions, ni le nombre de sessions, ni le nombre d'événements, ni la durée d'utilisation.")
+            if selected_service == "Ecommerce Demo":
+                freq_title = "Jours actifs moyens / visiteur"
+                render_kpi_card(freq_title, freq_val, freq_subtitle)
+                with st.popover("ℹ️"):
+                    st.markdown("**Que signifie cet indicateur ?**")
+                    st.markdown("La fréquence observée correspond au nombre moyen de jours distincts d'activité par Visitor ID Matomo sur la période sélectionnée.")
+                    if 'matomo_median_days' in locals() and matomo_median_days is not None:
+                        st.markdown(f"Médiane : {matomo_median_days} jours.")
+                    st.markdown("Cet indicateur repose sur les Visitor ID Matomo et non sur des User ID authentifiés.")
+            else:
+                render_kpi_card("Jours actifs moyens / utilisateur", freq_val, freq_subtitle)
+                with st.popover("ℹ️"):
+                    st.markdown("**Que signifie cet indicateur ?**")
+                    exact_val_str = ""
+                    if freq_val != "Non disponible" and "avg_days" in locals() and avg_days is not None:
+                        exact_val_str = f"Valeur calculée exacte : {str(avg_days).replace('.', ',')} jours.\n\nCela correspond à environ {rounded_avg_days} jours distincts d'activité par utilisateur actif sur les 30 derniers jours.\n\n"
+                    st.markdown(exact_val_str + "Il représente le nombre moyen de jours distincts pendant lesquels un utilisateur actif a réalisé au moins une activité sur le service au cours des 30 derniers jours.")
+                    st.markdown("Exemple : si un utilisateur réalise plusieurs actions le même jour, cette journée compte une seule fois.")
+                    st.markdown("Cet indicateur ne représente ni le nombre de connexions, ni le nombre de sessions, ni le nombre d'événements, ni la durée d'utilisation.")
 
         if has_data:
             kpi_insight = prepare_kpi_interpretation(
@@ -2255,10 +2301,16 @@ if selected_tab == "Vue d'ensemble":
                 st.caption("Suivre l'activité dans le temps et repérer les variations.")
 
             with metric_select_col:
-                metric_options = {
-                    "Utilisateurs actifs": "dau",
-                    "Événements observés": "events"
-                }
+                if selected_service == "Ecommerce Demo":
+                    metric_options = {
+                        "Visiteurs actifs": "dau",
+                        "Événements observés": "events"
+                    }
+                else:
+                    metric_options = {
+                        "Utilisateurs actifs": "dau",
+                        "Événements observés": "events"
+                    }
                 selected_metric_label = st.selectbox(
                     "Métrique",
                     options=list(metric_options.keys()),
