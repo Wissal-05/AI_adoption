@@ -478,3 +478,38 @@ def load_latest_matomo_live_usage_events(
         export_date=export_date,
         service_name=service_name,
     )
+
+
+def load_all_matomo_live_usage_events(
+    raw_dir: str | Path,
+    service_name: str = "Ecommerce Demo",
+) -> pd.DataFrame:
+    """Charge et consolide tous les exports RAW Matomo live_visits en dédupliquant par idVisit."""
+    
+    raw_path = Path(raw_dir)
+    files = sorted(raw_path.glob("live_visits_*.json"))
+    
+    if not files:
+        raise FileNotFoundError(f"Aucun fichier live_visits_*.json trouvé dans {raw_path}")
+        
+    consolidated_visits = {}
+    
+    for file_path in files:
+        try:
+            visits = json.loads(file_path.read_text(encoding="utf-8"))
+            for visit in visits:
+                id_visit = visit.get("idVisit")
+                if id_visit:
+                    consolidated_visits[id_visit] = visit
+        except Exception:
+            pass
+            
+    all_visits_list = list(consolidated_visits.values())
+    
+    export_date = extract_export_date_from_filename(files[-1].name)
+    
+    return normalize_matomo_live_visits(
+        live_visits=all_visits_list,
+        export_date=export_date,
+        service_name=service_name,
+    )

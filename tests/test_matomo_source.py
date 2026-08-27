@@ -284,3 +284,37 @@ def test_normalizes_empty_matomo_live_visits():
     )
 
     assert usage_df.empty
+
+
+def test_load_all_matomo_live_usage_events_consolidates_visits(tmp_path):
+    import json
+    from adoption_analytics.data_sources.matomo import load_all_matomo_live_usage_events
+
+    # Setup 2 raw files with overlap
+    file1 = tmp_path / "live_visits_20260805_120000.json"
+    file2 = tmp_path / "live_visits_20260806_120000.json"
+
+    data1 = [
+        {"idVisit": "1", "visitorId": "A", "actionDetails": [{"type": "action", "timestamp": 100}]},
+        {"idVisit": "2", "visitorId": "B", "actionDetails": [{"type": "action", "timestamp": 200}]}
+    ]
+
+    # File 2 updates visit 2 and adds visit 3
+    data2 = [
+        {"idVisit": "2", "visitorId": "B", "actionDetails": [{"type": "action", "timestamp": 200}, {"type": "action", "timestamp": 201}]},
+        {"idVisit": "3", "visitorId": "A", "actionDetails": [{"type": "action", "timestamp": 300}]}
+    ]
+
+    file1.write_text(json.dumps(data1), encoding="utf-8")
+    file2.write_text(json.dumps(data2), encoding="utf-8")
+
+    df = load_all_matomo_live_usage_events(raw_dir=tmp_path)
+
+    # We expect 3 distinct visits
+    # Visit 1: 1 action
+    # Visit 2: 2 actions (from data2)
+    # Visit 3: 1 action
+    # Total actions = 4
+    assert len(df) == 4
+    assert df["user_id"].nunique() == 2  # visitors A and B
+    assert df["session_id"].nunique() == 3  # visits 1, 2, 3
