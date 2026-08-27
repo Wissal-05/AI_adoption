@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, List
@@ -26,14 +25,14 @@ class PlatformUserRepository:
     def __init__(self):
         # We fetch credentials dynamically when a connection is needed
         pass
-        
+
     def _get_connection(self):
         host = settings.db_host
         port = settings.db_port
         dbname = settings.db_name
         user = settings.db_user
         password = settings.db_password
-        
+
         return psycopg.connect(
             host=host,
             port=port,
@@ -65,20 +64,20 @@ class PlatformUserRepository:
         password_hash: str,
         role: str,
         is_active: bool = True,
-        is_admin: bool = False
+        is_admin: bool = True
     ) -> PlatformUser:
-        
+
         email = email.strip().lower()
         if role not in {"IT", "Manager"}:
             raise ValueError(f"Rôle invalide : {role}. Doit être 'IT' ou 'Manager'.")
-            
+
         try:
             with self._get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO platform_users 
-                        (email, name, password_hash, role, is_active, is_admin) 
+                        INSERT INTO platform_users
+                        (email, name, password_hash, role, is_active, is_admin)
                         VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING *
                         """,
@@ -93,8 +92,8 @@ class PlatformUserRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE platform_users 
-                    SET is_active = %s, updated_at = CURRENT_TIMESTAMP 
+                    UPDATE platform_users
+                    SET is_active = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s
                     """,
                     (is_active, user_id)
@@ -103,13 +102,13 @@ class PlatformUserRepository:
     def update_role(self, user_id: int, role: str) -> None:
         if role not in {"IT", "Manager"}:
             raise ValueError(f"Rôle invalide : {role}. Doit être 'IT' ou 'Manager'.")
-            
+
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE platform_users 
-                    SET role = %s, updated_at = CURRENT_TIMESTAMP 
+                    UPDATE platform_users
+                    SET role = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s
                     """,
                     (role, user_id)
@@ -120,8 +119,8 @@ class PlatformUserRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE platform_users 
-                    SET is_admin = %s, updated_at = CURRENT_TIMESTAMP 
+                    UPDATE platform_users
+                    SET is_admin = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s
                     """,
                     (is_admin, user_id)
