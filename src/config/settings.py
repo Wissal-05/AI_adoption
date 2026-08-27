@@ -123,7 +123,34 @@ class Settings(BaseSettings):
         ),
     )
 
-    # ── Chemins dérivés (propriétés calculées) ─────────────────────────────────
+    # 🗄️ Base de données 🗄️
+
+    db_host: str = Field(
+        default="localhost",
+        description="Hôte de la base de données PostgreSQL.",
+    )
+    
+    db_port: int = Field(
+        default=5432,
+        description="Port de la base de données.",
+    )
+    
+    db_name: str = Field(
+        default="adoption_analytics",
+        description="Nom de la base de données.",
+    )
+    
+    db_user: str = Field(
+        default="postgres",
+        description="Utilisateur de la base de données.",
+    )
+    
+    db_password: str = Field(
+        default="",
+        description="Mot de passe de la base de données.",
+    )
+
+    # 🗂️ Chemins dérivés (propriétés calculées) 🗂️─────────────────────────────────
 
     @property
     def data_dir(self) -> Path:
