@@ -2094,6 +2094,64 @@ if selected_tab == "Vue d'ensemble":
                     ),
                     border=True,
                 )
+            
+            if selected_service == "Booking":
+                st.markdown("### Adoption et utilisation")
+                
+                extended_booking = dashboard_service.get_service_extended_analytics("Booking")
+                
+                if extended_booking.status == "available":
+                    st.markdown("##### Utilisation observée")
+                    usage = extended_booking.usage
+                    
+                    ucol1, ucol2 = st.columns(2)
+                    
+                    val_med = usage.get("median_active_days_per_active_user_30d")
+                    val_int = usage.get("observed_usage_intensity_30d")
+                    
+                    with ucol1:
+                        med_str = f"{int(val_med)} jours" if val_med is not None else "Non disponible"
+                        st.metric("Médiane", med_str)
+                        with st.popover("ℹ️ Info"):
+                            st.markdown("Nombre médian de jours actifs parmi les utilisateurs actifs sur les 30 derniers jours. La moitié des utilisateurs actifs utilise Booking au maximum 2 jours, et l'autre moitié au moins 2 jours.")
+                    
+                    with ucol2:
+                        int_str = f"{val_int:.1f} %".replace(".", ",") if val_int is not None else "Non disponible"
+                        st.metric("Intensité observée", int_str)
+                        with st.popover("ℹ️ Info"):
+                            st.markdown("Part moyenne des jours de la fenêtre de 30 jours pendant lesquels un utilisateur actif utilise Booking. Cet indicateur décrit l'usage observé et ne constitue pas un objectif métier.")
+                    
+                    st.markdown("##### Adoption par module")
+                    adoption_data = []
+                    for m in extended_booking.adoption_by_module:
+                        rate = m.get("observed_adoption_rate")
+                        st_val = m.get("status")
+                        
+                        if st_val == "available":
+                            rate_str = f"{rate:.2f} %".replace(".", ",") if rate is not None else "Non calculable"
+                        else:
+                            rate_str = "Non calculable"
+                        
+                        active_u = m.get("active_users")
+                        active_str = "Non disponible" if active_u is None else int(active_u)
+                        
+                        eligible_u = m.get("eligible_users")
+                        if st_val == "eligible_population_unavailable" or eligible_u is None or eligible_u <= 0:
+                            eligible_str = "Non disponible"
+                        else:
+                            eligible_str = int(eligible_u)
+                        
+                        adoption_data.append({
+                            "Module": str(m.get("module", "")).capitalize(),
+                            "Utilisateurs actifs": active_str,
+                            "Utilisateurs éligibles": eligible_str,
+                            "Taux d'adoption": rate_str
+                        })
+                    
+                    st.dataframe(pd.DataFrame(adoption_data), hide_index=True, use_container_width=True)
+                    st.caption("Le taux d'adoption est calculé uniquement lorsque la population éligible et la télémétrie d'usage sont disponibles.")
+                else:
+                    st.info("Données d'adoption et d'utilisation non disponibles.")
 
 
     # ── Évolution de l’usage ──────────────────────────────────────────────────
