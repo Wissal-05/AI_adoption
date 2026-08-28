@@ -39,6 +39,7 @@ from adoption_analytics.ui.filters import (
 )
 from adoption_analytics.ui.theme import apply_um6p_theme
 from adoption_analytics.ui.auth_ui import require_authentication, render_sidebar_user_profile
+from adoption_analytics.ui.settings_ui import render_settings_page
 
 # ── Configuration de la page ───────────────────────────────────────────────────
 
@@ -912,13 +913,18 @@ st.sidebar.markdown(
 
 render_sidebar_user_profile(current_user)
 
+nav_options = [
+    "Vue d'ensemble",
+    "Security Analytics",
+    "Assistant IA"
+]
+
+if current_user.get("is_admin"):
+    nav_options.append("Paramètres")
+
 selected_tab = st.sidebar.radio(
     "Navigation",
-    options=[
-        "Vue d'ensemble",
-        "Security Analytics",
-        "Assistant IA"
-    ],
+    options=nav_options,
     format_func=lambda x: {
         "Vue d'ensemble": "Vue d'ensemble",
         "Adoption détaillée": "Analyse d'usage",
@@ -3129,3 +3135,7 @@ if selected_tab == "Assistant IA":
 
 # ── Onglet Architecture ───────────────────────────────────────────────────────
 
+
+
+if selected_tab == "Paramètres":
+    render_settings_page(current_user)
