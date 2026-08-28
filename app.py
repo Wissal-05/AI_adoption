@@ -1760,6 +1760,147 @@ if selected_tab == "Vue d'ensemble":
             period_info = f"{current_window.start_date.strftime('%d/%m/%Y')}"
         else:
             period_info = f"{current_window.start_date.strftime('%d/%m/%Y')} — {current_window.end_date.strftime('%d/%m/%Y')}"
+    # ── Évolution de l’usage ──────────────────────────────────────────────────
+
+    trend_start = current_window.start_date if current_window is not None and selected_period not in ("Toute la période disponible", "Dernière date disponible") else None
+    trend_end = current_window.end_date if current_window is not None and selected_period not in ("Toute la période disponible", "Dernière date disponible") else None
+
+    service_bounds = {}
+    if not data.usage_events.empty and "service" in data.usage_events.columns:
+        for srv in data.usage_events["service"].dropna().unique():
+            srv_usage = data.usage_events[data.usage_events["service"] == srv]
+            if not srv_usage.empty:
+                srv_min, srv_max = get_available_date_bounds(srv_usage)
+                if srv_min and srv_max:
+                    service_bounds[srv] = (srv_min, srv_max)
+
+    unified_trend = build_unified_adoption_trend(
+        filtered_usage,
+        start_date=trend_start,
+        end_date=trend_end,
+        service_bounds=service_bounds
+    )
+
+    trend_warning = dashboard_service.get_trend_warning_message(filtered_usage, selected_service)
+    if trend_warning and selected_period != "Dernière date disponible":
+        st.info(trend_warning)
+
+    with st.expander("Évolution de l’usage", expanded=True):
+        if unified_trend.empty:
+            st.markdown(
+                "<div class='data-unavailable'>"
+                "<span class='unavail-icon'>📉</span>"
+                "<span>Aucune donnée d’évolution disponible sur cette période. "
+                "Élargissez la plage temporelle ou vérifiez les sources du service sélectionné.</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            is_all_services_view = (selected_service == "Tous les services")
+
+            evolution_title_col, metric_select_col = st.columns(
+                [3, 1],
+                vertical_alignment="center",
+            )
+
+            with evolution_title_col:
+                st.caption("Suivre l'activité dans le temps et repérer les variations.")
+
+            with metric_select_col:
+                if selected_service == "Ecommerce Demo":
+                    metric_options = {
+                        "Visiteurs actifs": "dau",
+                        "Événements observés": "events"
+                    }
+                else:
+                    metric_options = {
+                        "Utilisateurs actifs": "dau",
+                        "Événements observés": "events"
+                    }
+                selected_metric_label = st.selectbox(
+                    "Métrique",
+                    options=list(metric_options.keys()),
+                    index=0,
+                    key="unified_trend_kpi",
+                    label_visibility="collapsed"
+                )
+
+            selected_kpi = metric_options[selected_metric_label]
+
+            evolution_interpretation = prepare_evolution_interpretation(
+                unified_trend,
+                selected_service,
+                selected_metric_label,
+                selected_kpi,
+            )
+            evolution_interpretation = add_recommendations_to_insight(
+                evolution_interpretation,
+                prepare_evolution_recommendations(
+                    evolution_data=unified_trend,
+                    selected_metric=selected_metric_label,
+                    selected_service=selected_service,
+                ),
+            )
+
+            with st.popover("💡 Interprétation IA"):
+                render_interpretation_popover(evolution_interpretation)
+
+            trend_to_display = unified_trend.copy()
+
+            if not is_all_services_view:
+                trend_to_display = trend_to_display[
+                    trend_to_display["service"] == selected_service
+                ]
+
+            if selected_period == "Dernière date disponible":
+                if is_all_services_view:
+                    st.info(
+                        "Le graphique d'évolution n'est pas affiché car la dernière "
+                        "date disponible varie selon les services.\n"
+                        "Afficher une évolution combinée serait incohérent."
+                    )
+                else:
+                    st.info("Une seule journée est sélectionnée.\n"
+                            "Une tendance temporelle ne peut pas être analysée.")
+            else:
+                if trend_to_display.empty:
+                    st.markdown(
+                        "<div class='data-unavailable'>"
+                        "<span class='unavail-icon'>📅</span>"
+                        "<span>Aucune donnée de tendance disponible pour ce service sur la période sélectionnée. "
+                        "Élargissez la période ou vérifiez les sources de données.</span>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    fig = px.line(
+                        trend_to_display,
+                        x="date",
+                        y=selected_kpi,
+                        color="service",
+                        labels={"date": "Date", selected_kpi: selected_metric_label, "service": "Service"},
+                        markers=True,
+                        color_discrete_map={
+                            "Booking": "#E94B00",
+                            "Learning Center": "#2E7D32",
+                            "Ecommerce Demo": "#2563EB"
+                        }
+                    )
+
+                    fig.update_layout(
+                        height=360,
+                        margin=dict(l=0, r=0, t=20, b=0),
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=-0.2,
+                            xanchor="center",
+                            x=0.5,
+                            title=""
+                        )
+                    )
+
+                    st.plotly_chart(fig, width="stretch")
 
         st.subheader("Ce qui mérite votre attention")
         signals = []
@@ -2264,147 +2405,6 @@ if selected_tab == "Vue d'ensemble":
                     st.info("Données d'adoption et d'utilisation non disponibles.")
 
 
-    # ── Évolution de l’usage ──────────────────────────────────────────────────
-
-    trend_start = current_window.start_date if current_window is not None and selected_period not in ("Toute la période disponible", "Dernière date disponible") else None
-    trend_end = current_window.end_date if current_window is not None and selected_period not in ("Toute la période disponible", "Dernière date disponible") else None
-
-    service_bounds = {}
-    if not data.usage_events.empty and "service" in data.usage_events.columns:
-        for srv in data.usage_events["service"].dropna().unique():
-            srv_usage = data.usage_events[data.usage_events["service"] == srv]
-            if not srv_usage.empty:
-                srv_min, srv_max = get_available_date_bounds(srv_usage)
-                if srv_min and srv_max:
-                    service_bounds[srv] = (srv_min, srv_max)
-
-    unified_trend = build_unified_adoption_trend(
-        filtered_usage,
-        start_date=trend_start,
-        end_date=trend_end,
-        service_bounds=service_bounds
-    )
-
-    trend_warning = dashboard_service.get_trend_warning_message(filtered_usage, selected_service)
-    if trend_warning and selected_period != "Dernière date disponible":
-        st.info(trend_warning)
-
-    with st.expander("Évolution de l’usage", expanded=False):
-        if unified_trend.empty:
-            st.markdown(
-                "<div class='data-unavailable'>"
-                "<span class='unavail-icon'>📉</span>"
-                "<span>Aucune donnée d’évolution disponible sur cette période. "
-                "Élargissez la plage temporelle ou vérifiez les sources du service sélectionné.</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            is_all_services_view = (selected_service == "Tous les services")
-
-            evolution_title_col, metric_select_col = st.columns(
-                [3, 1],
-                vertical_alignment="center",
-            )
-
-            with evolution_title_col:
-                st.caption("Suivre l'activité dans le temps et repérer les variations.")
-
-            with metric_select_col:
-                if selected_service == "Ecommerce Demo":
-                    metric_options = {
-                        "Visiteurs actifs": "dau",
-                        "Événements observés": "events"
-                    }
-                else:
-                    metric_options = {
-                        "Utilisateurs actifs": "dau",
-                        "Événements observés": "events"
-                    }
-                selected_metric_label = st.selectbox(
-                    "Métrique",
-                    options=list(metric_options.keys()),
-                    index=0,
-                    key="unified_trend_kpi",
-                    label_visibility="collapsed"
-                )
-
-            selected_kpi = metric_options[selected_metric_label]
-
-            evolution_interpretation = prepare_evolution_interpretation(
-                unified_trend,
-                selected_service,
-                selected_metric_label,
-                selected_kpi,
-            )
-            evolution_interpretation = add_recommendations_to_insight(
-                evolution_interpretation,
-                prepare_evolution_recommendations(
-                    evolution_data=unified_trend,
-                    selected_metric=selected_metric_label,
-                    selected_service=selected_service,
-                ),
-            )
-
-            with st.popover("💡 Interprétation IA"):
-                render_interpretation_popover(evolution_interpretation)
-
-            trend_to_display = unified_trend.copy()
-
-            if not is_all_services_view:
-                trend_to_display = trend_to_display[
-                    trend_to_display["service"] == selected_service
-                ]
-
-            if selected_period == "Dernière date disponible":
-                if is_all_services_view:
-                    st.info(
-                        "Le graphique d'évolution n'est pas affiché car la dernière "
-                        "date disponible varie selon les services.\n"
-                        "Afficher une évolution combinée serait incohérent."
-                    )
-                else:
-                    st.info("Une seule journée est sélectionnée.\n"
-                            "Une tendance temporelle ne peut pas être analysée.")
-            else:
-                if trend_to_display.empty:
-                    st.markdown(
-                        "<div class='data-unavailable'>"
-                        "<span class='unavail-icon'>📅</span>"
-                        "<span>Aucune donnée de tendance disponible pour ce service sur la période sélectionnée. "
-                        "Élargissez la période ou vérifiez les sources de données.</span>"
-                        "</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    fig = px.line(
-                        trend_to_display,
-                        x="date",
-                        y=selected_kpi,
-                        color="service",
-                        labels={"date": "Date", selected_kpi: selected_metric_label, "service": "Service"},
-                        markers=True,
-                        color_discrete_map={
-                            "Booking": "#E94B00",
-                            "Learning Center": "#2E7D32",
-                            "Ecommerce Demo": "#2563EB"
-                        }
-                    )
-
-                    fig.update_layout(
-                        height=360,
-                        margin=dict(l=0, r=0, t=20, b=0),
-                        legend=dict(
-                            orientation="h",
-                            yanchor="bottom",
-                            y=-0.2,
-                            xanchor="center",
-                            x=0.5,
-                            title=""
-                        )
-                    )
-
-                    st.plotly_chart(fig, width="stretch")
     # ── Usage par entité / campus ──────────────────────────────────────────────
 
     dept_df = departmental_breakdown(filtered_usage)
