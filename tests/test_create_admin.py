@@ -7,7 +7,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from create_admin import validate_email, validate_role, validate_password, validate_password_match, check_bootstrap_allowed
+from adoption_analytics.auth.user_management import UserManagementService
+from create_admin import validate_password_match, check_bootstrap_allowed
+
+validate_email = UserManagementService.validate_email
+validate_role = UserManagementService.validate_role
+validate_password = UserManagementService.validate_password
 
 def test_validate_email():
     # Valid UM6P emails

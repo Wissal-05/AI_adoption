@@ -1,6 +1,5 @@
 import sys
 import getpass
-import re
 from pathlib import Path
 
 # Ajouter src au PYTHONPATH
@@ -10,31 +9,7 @@ if str(ROOT / "src") not in sys.path:
 
 from adoption_analytics.auth.repository import PlatformUserRepository
 from adoption_analytics.auth.service import AuthService
-
-def validate_email(email: str) -> str:
-    email = email.strip().lower()
-    local_part, separator, domain = email.rpartition('@')
-    if separator != '@' or not local_part or domain != 'um6p.ma':
-        raise ValueError("L'email doit être une adresse professionnelle valide du domaine @um6p.ma.")
-    return email
-
-def validate_role(role: str) -> str:
-    role = role.strip()
-    if role not in {"IT", "Manager"}:
-        raise ValueError("Le rôle doit être exactement 'IT' ou 'Manager'.")
-    return role
-
-def validate_password(password: str) -> None:
-    if len(password) < 12:
-        raise ValueError("Le mot de passe doit contenir au moins 12 caractères.")
-    if not re.search(r'[A-Z]', password):
-        raise ValueError("Le mot de passe doit contenir au moins une lettre majuscule.")
-    if not re.search(r'[a-z]', password):
-        raise ValueError("Le mot de passe doit contenir au moins une lettre minuscule.")
-    if not re.search(r'\d', password):
-        raise ValueError("Le mot de passe doit contenir au moins un chiffre.")
-    if not re.search(r'[^A-Za-z0-9]', password):
-        raise ValueError("Le mot de passe doit contenir au moins un caractère spécial.")
+from adoption_analytics.auth.user_management import UserManagementService
 
 def validate_password_match(password: str, confirm_password: str) -> None:
     if password != confirm_password:
@@ -49,7 +24,7 @@ def main():
     try:
         repo = PlatformUserRepository()
         auth = AuthService(repository=repo)
-
+        
         # 1. Vérification bootstrap (uniquement le premier utilisateur)
         try:
             check_bootstrap_allowed(repo)
@@ -63,21 +38,20 @@ def main():
         print("\n--- Initialisation du premier Administrateur ---")
 
         raw_email = input("Email professionnel : ")
-        email = validate_email(raw_email)
+        email = UserManagementService.validate_email(raw_email)
 
-        name = input("Nom complet : ").strip()
-        if not name:
-            raise ValueError("Le nom ne peut pas être vide.")
+        raw_name = input("Nom complet : ")
+        name = UserManagementService.validate_name(raw_name)
 
         raw_role = input("Rôle [IT/Manager] : ")
-        role = validate_role(raw_role)
+        role = UserManagementService.validate_role(raw_role)
 
         password = getpass.getpass("Mot de passe : ")
         confirm_password = getpass.getpass("Confirmer le mot de passe : ")
 
         validate_password_match(password, confirm_password)
 
-        validate_password(password)
+        UserManagementService.validate_password(password)
 
         # 2. Hachage et création sécurisée
         password_hash = auth.hash_password(password)
