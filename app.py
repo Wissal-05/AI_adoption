@@ -38,6 +38,7 @@ from adoption_analytics.ui.filters import (
     resolve_period,
 )
 from adoption_analytics.ui.theme import apply_um6p_theme
+from adoption_analytics.ui.auth_ui import require_authentication, render_sidebar_user_profile
 
 # ── Configuration de la page ───────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ st.set_page_config(page_title="AI Adoption Analytics", layout="wide")
 
 apply_um6p_theme()
 
+current_user = require_authentication()
 
 # ── Chargement des données (mis en cache par session) ─────────────────────────
 
@@ -907,6 +909,8 @@ st.sidebar.markdown(
     '<div class="um6p-eyebrow" style="margin-bottom: 1.5rem;">ADOPTION ANALYTICS</div>',
     unsafe_allow_html=True,
 )
+
+render_sidebar_user_profile(current_user)
 
 selected_tab = st.sidebar.radio(
     "Navigation",
